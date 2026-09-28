@@ -114,9 +114,16 @@ WDG_MODULE(function (W) {
         if (f.group === 'template') {
           const c = analysis.template.clusters[f.hint.cluster];
           if (!c.lines.includes(it.index)) return;
+          if (f.hint.manual) {
+            // builder template: expected value is what the pattern captures in JS;
+            // a line the pattern does not match counts as expected but missing
+            const vals = W.formats.template.spanValues(c, it.payload);
+            want = vals ? vals.get(f.hint.span) : '\u0000no match';
+          } else {
           const tIdx = c.lines.indexOf(it.index);
           const p = c.positions[f.hint.pos];
           want = p.role === 'tail' ? W.analyzer.tailText(analysis, c, f.hint.pos, it.index) : W.formats.template.inner({ k: p.k, v: p.values[tIdx] });
+          }
         } else {
           const src = f.group === 'envelope' ? it.envelope && it.envelope.fields : it.parsed && it.parsed.fields;
           const pf = src && src.find((x) => x.key === f.key);

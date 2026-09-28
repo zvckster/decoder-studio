@@ -176,7 +176,7 @@ test('Free-form: access log naming', () => {
   const { model } = build('freeform-access');
   const child = model.decoders.find((d) => d.regex);
   assert.deepEqual(child.order.slice(0, 1), ['srcip']);
-  assert.ok(child.order.includes('request'));
+  for (const n of ['http_method', 'url', 'http_version']) assert.ok(child.order.includes(n), n);
   assert.ok(child.order.includes('http_status'));
   assert.ok(child.order.includes('user_agent'));
 });
@@ -351,7 +351,7 @@ test('access log with ";" inside the user agent is free-form, not CSV, and decod
   assert.equal(v.coverage.decoded, 1);
   assert.equal(v.coverage.fieldRate, 1);
   const order = m.decoders.find((d) => d.regex).order;
-  for (const n of ['srcip', 'request', 'http_status', 'referrer', 'user_agent', 'response_time']) assert.ok(order.includes(n), n);
+  for (const n of ['srcip', 'http_method', 'url', 'http_version', 'http_status', 'referrer', 'user_agent', 'response_time']) assert.ok(order.includes(n), n);
 });
 
 test('KV prematch anchors on the earliest shared keys', () => {
@@ -372,4 +372,54 @@ test('naming schemes: Native Wazuh, WCS v5 (custom.* for unknown fields), Custom
   assert.equal(name(cus, 'dstip'), 'dstip');
   assert.equal(W.fieldmap.normalizeScheme('ecs'), 'wcs');
   assert.equal(W.fieldmap.normalizeScheme('original'), 'custom');
+});
+
+// ---------------------------------------------------------------- pattern builder
+const NGINX = [
+  '10.30.20.1 - 203.0.113.25 - [07/Sep/2026:16:31:01 +0100] "GET / HTTP/1.1" 200 521 "-" "Mozilla/5.0"',
+  '10.30.20.7 - 198.51.100.4 - [07/Sep/2026:16:32:40 +0100] "POST /api/login?next=/home HTTP/2.0" 302 0 "https://shop.example/" "curl/8.4.0"',
+].join('\n');
+
+test('free-form: the HTTP request line is split into method, path and version', () => {
+  const wcs = W.analyze(NGINX, { scheme: 'wcs' });
+  const names = wcs.fields.map((f) => f.name);
+  for (const n of ['http.request.method', 'url.original', 'http.version']) assert.ok(names.includes(n), n);
+  assert.equal(wcs.fields.find((f) => f.name === 'url.original').samples[0], '/');
+});
+
+test('pattern builder: starts from the template, splits fields, keeps leftovers as wildcards', () => {
+  const T = W.formats.template;
+  const a = W.analyze(NGINX);
+  const c = a.template.clusters[0];
+  const man = T.toManual(c, a.lines[0].payload);
+  assert.ok(man.spans.length >= 10);
+  W.analyzer.refreshTemplate(a);
+  let v = W.linter.verify(W.generate(a, { name: 'nginx' }), a);
+  assert.equal(v.coverage.decoded, 2);
+  assert.equal(v.coverage.fieldRate, 1);
+
+  // select only the day inside the timestamp: the rest becomes wildcards
+  const d0 = man.line.indexOf('07/Sep');
+  T.addSpan(man, { start: d0, end: d0 + 2, name: 'day' });
+  assert.ok(man.spans.some((s) => s.name === 'day' && s.capture));
+  assert.ok(man.spans.some((s) => s.name.endsWith('_tail') && !s.capture));
+  W.analyzer.refreshTemplate(a);
+  const m = W.generate(a, { name: 'nginx' });
+  v = W.linter.verify(m, a);
+  assert.equal(v.coverage.decoded, 2, 'both lines still decode');
+  assert.equal(v.coverage.fieldRate, 1);
+  assert.equal(v.results[1].fields.find((f) => f.name === 'day').value, '07');
+});
+
+test('pattern builder: a free selection across tokens becomes one field', () => {
+  const T = W.formats.template;
+  const a = W.analyze(NGINX);
+  const c = a.template.clusters[0];
+  const man = T.toManual(c, a.lines[0].payload);
+  const s = man.line.indexOf('GET');
+  T.addSpan(man, { start: s, end: man.line.indexOf('"', s), name: 'request_line' });
+  W.analyzer.refreshTemplate(a);
+  const v = W.linter.verify(W.generate(a, { name: 'nginx' }), a);
+  assert.equal(v.results[1].fields.find((f) => f.name === 'request_line').value, 'POST /api/login?next=/home HTTP/2.0');
+  assert.equal(v.coverage.fieldRate, 1);
 });

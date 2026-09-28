@@ -24,6 +24,7 @@ WDG_MODULE(function (W) {
   const NO_SPLIT = new Set(['time', 'ipv6', 'mac', 'iso8601', 'url', 'unixpath', 'winpath', 'date', 'uuid', 'email']);
   const DIRECTION = { from: 'src', to: 'dst', by: 'src', src: 'src', dst: 'dst', source: 'src', destination: 'dst', client: 'src', server: 'dst', remote: 'src', local: 'dst' };
   const KEYWORDS = new Set(['user', 'username', 'account', 'login', 'host', 'hostname', 'file', 'filename', 'path', 'uid', 'gid', 'pid', 'port', 'ip', 'domain', 'group', 'role', 'policy', 'rule', 'client', 'server', 'src', 'dst']);
+  const REQUEST_LINE = /^"([A-Z]{3,10}) (\S+) ([A-Z]+\/[\d.]+)"$/;
   const STOP_WORDS = new Set(['the', 'a', 'an', 'of', 'on', 'in', 'at', 'is', 'was', 'for', 'with', 'and', 'or', 'as']);
 
   function tokenize(body) {
@@ -41,7 +42,7 @@ WDG_MODULE(function (W) {
       if (v[0] === '"' && v.length > 1) k = 'q';
       else if (v[0] === '[' && v.length > 1) k = 'b';
       else if (v.length === 1 && /[^A-Za-z0-9]/.test(v)) k = 'p';
-      toks.push({ k, v, ws });
+      toks.push({ k, v, ws, start: m.index, end: m.index + v.length });
       ws = false;
     }
     return toks;
@@ -104,10 +105,31 @@ WDG_MODULE(function (W) {
     return clusters.map(finalize);
   }
 
+  /**
+   * HTTP request line ("GET /index.html HTTP/1.1") → quote, method, path,
+   * version, quote. Each part becomes its own field.
+   */
+  function splitRequest(p) {
+    const parts = p.values.map((v) => REQUEST_LINE.exec(v));
+    const col = (i) => parts.map((m) => m[i]);
+    const sub = (k, v, values, ws, role) => ({ k, v, values, ws, isConst: values.every((x) => x === values[0]), sub: role });
+    return [
+      sub('p', '"', p.values.map(() => '"'), p.ws, null),
+      sub('w', col(1)[0], col(1), false, 'method'),
+      sub('w', col(2)[0], col(2), true, 'path'),
+      sub('w', col(3)[0], col(3), true, 'version'),
+      sub('p', '"', p.values.map(() => '"'), false, null),
+    ];
+  }
+
   /** Split varying words like "outside:10.0.0.1/443" into sub-positions. */
   function splitWords(positions) {
     const out = [];
     for (const p of positions) {
+      if (p.k === 'q' && p.values.every((v) => REQUEST_LINE.test(v))) {
+        out.push(...splitRequest(p));
+        continue;
+      }
       if (p.isConst || p.k !== 'w' || NO_SPLIT.has(T.inferType(p.values))) {
         out.push(p);
         continue;
@@ -134,6 +156,7 @@ WDG_MODULE(function (W) {
       const t = T.inferType(p.values.map((v) => inner({ k: p.k, v })));
       p.type = t;
       if (p.isConst && small && (VARIABLE_TYPES.has(t) || (p.k === 'q' && /\d/.test(p.v)) || (p.k === 'b' && /\d/.test(p.v)))) p.isConst = false;
+      if (p.sub) p.isConst = false; // request-line parts are always fields
       p.role = p.isConst ? 'const' : 'var';
       p.selected = p.role === 'var';
     }
@@ -189,7 +212,10 @@ WDG_MODULE(function (W) {
       else if (w && ['user', 'username', 'account', 'login'].includes(w)) name = dir === 'src' ? 'srcuser' : 'dstuser';
       else if (after === 'for' && !isIp && ['word', 'token', 'email', 'domainuser'].includes(p.type)) name = 'dstuser';
       else if (w && !d) name = W.util.sanitizeFieldName(w);
-      if (!name && p.type === 'httprequest') {
+      if (p.sub) {
+        name = { method: 'http_method', path: 'url', version: 'http_version' }[p.sub];
+        sawRequest = true;
+      } else if (!name && p.type === 'httprequest') {
         name = 'request';
         sawRequest = true;
       } else if (!name && sawRequest && p.type === 'integer') {
@@ -227,6 +253,7 @@ WDG_MODULE(function (W) {
    * @returns {{pattern:string, captures:Array<{pos:number,name:string}>}}
    */
   function clusterRegex(cluster, mode) {
+    if (cluster.manual) return manualRegex(cluster.manual.line, cluster.manual.spans, mode);
     const pos = cluster.positions;
     let re = '^';
     const captures = [];
@@ -262,6 +289,182 @@ WDG_MODULE(function (W) {
     return { pattern: re, captures };
   }
 
+  // ------------------------------------------------------------------
+  // Pattern builder: fields as character ranges of a sample line
+  // (regex101-style). A span is {start, end, name, capture, type}.
+  // capture=false marks a wildcard: the text varies but is not extracted.
+  // ------------------------------------------------------------------
+
+  const SEGMENT = /"(?:[^"\\]|\\.)*"|\[[^\[\]]{0,256}\]|\s+|[A-Za-z0-9_.:@\/\\%+~#$-]+|[^\sA-Za-z0-9]/g;
+
+  /** Literal text between two fields: constants stay literal, values that obviously vary become wildcards. */
+  function generalize(text) {
+    let out = '';
+    const pieces = [];
+    SEGMENT.lastIndex = 0;
+    let m;
+    while ((m = SEGMENT.exec(text))) pieces.push(m[0]);
+    pieces.forEach((v, i) => {
+      if (/^\s+$/.test(v)) {
+        out += '\\s+';
+        return;
+      }
+      const next = pieces[i + 1];
+      if (v.length > 1 && v[0] === '"' && /\d/.test(v)) out += '"(?:[^"\\\\]|\\\\.)*"';
+      else if (v.length > 1 && v[0] === '[' && /\d/.test(v)) out += '\\[[^\\]]*\\]';
+      else if ((/^[A-Za-z0-9]/.test(v) && VARIABLE_TYPES.has(T.classify(v))) || (v.length > 1 && (v.match(/\d/g) || []).length >= 2)) {
+        const stop = next && !/^\s/.test(next) ? next[0] : null;
+        out += stop ? `[^\\s${U.escapeClassChar(stop)}]+` : '\\S+';
+      } else out += U.escapeRegex(v);
+    });
+    return out;
+  }
+
+  /** Capture body for one span, chosen from the character that follows it. */
+  function spanBody(line, s, mode) {
+    const value = line.slice(s.start, s.end);
+    const next = line[s.end];
+    const typed = mode === 'strict' && s.type && W.types.info(s.type).pattern;
+    if (typed) return typed;
+    if (next === undefined) return '.*';
+    const hasWs = /\s/.test(value);
+    if (/\s/.test(next)) return hasWs ? '.+?' : '\\S+';
+    if (/[A-Za-z0-9]/.test(next) || hasWs || value.includes(next)) return '.+?';
+    return `[^${U.escapeClassChar(next)}]*`;
+  }
+
+  /** Regex for a line where fields are character spans. */
+  function manualRegex(line, spans, mode) {
+    const sorted = spans.slice().sort((a, b) => a.start - b.start);
+    let re = '^';
+    let cur = 0;
+    const captures = [];
+    sorted.forEach((s, i) => {
+      re += generalize(line.slice(cur, s.start));
+      const body = spanBody(line, s, mode);
+      if (s.capture) {
+        re += `(${body})`;
+        captures.push({ span: spans.indexOf(s), name: s.name });
+      } else re += body.startsWith('(?:') ? body : `(?:${body})`;
+      cur = s.end;
+    });
+    re += generalize(line.slice(cur));
+    return { pattern: re, captures };
+  }
+
+  function jsRegex(pattern) {
+    const t = W.regex.pcreToJs(pattern);
+    return new RegExp(t.source, t.flags + 'd');
+  }
+
+  /** Initial spans of a suggested template, located in one of its lines. */
+  function spansFromCluster(cluster, line) {
+    if (cluster.manual) return cluster.manual.spans.map((s) => Object.assign({}, s));
+    const all = { positions: cluster.positions.map((p) => Object.assign({}, p, { selected: p.role === 'var' || p.role === 'tail' })) };
+    const { pattern, captures } = clusterRegex(all, 'robust');
+    let m;
+    try {
+      m = jsRegex(pattern).exec(line);
+    } catch (e) {
+      m = null;
+    }
+    if (!m || !m.indices) return [];
+    return captures
+      .map((c, i) => {
+        const ix = m.indices[i + 1];
+        if (!ix) return null;
+        const p = cluster.positions[c.pos];
+        return { start: ix[0], end: ix[1], name: p.name, capture: !!p.selected, type: p.type, pos: c.pos };
+      })
+      .filter((s) => s && s.end >= s.start);
+  }
+
+  let spanSeq = 0;
+  const newSpanId = () => ++spanSeq;
+
+  /** Switch a template to the character-span model, keeping its fields. */
+  function toManual(cluster, line) {
+    if (!cluster.manual) {
+      cluster.manual = { line, spans: spansFromCluster(cluster, line).map((s) => Object.assign(s, { id: newSpanId() })) };
+    }
+    return cluster.manual;
+  }
+
+  /**
+   * Add a span. Spans it overlaps are carved: the parts left over on either
+   * side stay as wildcards (they still vary), so selecting "07" inside a
+   * timestamp keeps the rest of the timestamp flexible.
+   */
+  function addSpan(manual, span) {
+    if (span.end <= span.start) return manual;
+    const out = [];
+    for (const s of manual.spans) {
+      if (s.end <= span.start || s.start >= span.end) {
+        out.push(s);
+        continue;
+      }
+      if (s.start < span.start) out.push({ id: newSpanId(), start: s.start, end: span.start, name: `${s.name}_head`, capture: false, type: null });
+      if (s.end > span.end) out.push({ id: newSpanId(), start: span.end, end: s.end, name: `${s.name}_tail`, capture: false, type: null });
+    }
+    out.push(Object.assign({ id: newSpanId(), capture: true }, span));
+    manual.spans = out.sort((a, b) => a.start - b.start);
+    return manual;
+  }
+
+  function removeSpan(manual, id) {
+    manual.spans = manual.spans.filter((s) => s.id !== id);
+    return manual;
+  }
+
+  /** Value of every span (captured or wildcard) on one line: Map id → value, or null. */
+  function spanValues(cluster, line) {
+    if (!cluster.manual) return null;
+    const spans = cluster.manual.spans.slice().sort((a, b) => a.start - b.start);
+    const all = spans.map((s) => Object.assign({}, s, { capture: true }));
+    let m;
+    try {
+      m = jsRegex(manualRegex(cluster.manual.line, all, 'robust').pattern).exec(line);
+    } catch (e) {
+      return null;
+    }
+    if (!m) return null;
+    const out = new Map();
+    spans.forEach((s, i) => out.set(s.id, m[i + 1] === undefined ? '' : m[i + 1]));
+    return out;
+  }
+
+  /** Values captured by a template (any model) on one line, or null if it does not match. */
+  function extract(cluster, line) {
+    const { pattern } = clusterRegex(cluster, 'robust');
+    let m;
+    try {
+      m = jsRegex(pattern).exec(line);
+    } catch (e) {
+      return null;
+    }
+    return m ? { values: m.slice(1), indices: m.indices.slice(1) } : null;
+  }
+
+  /** Suggested name for a new span, from its value and the text before it. */
+  function suggestSpanName(line, start, end, used) {
+    const value = line.slice(start, end);
+    const type = T.classify(value);
+    const before = line.slice(Math.max(0, start - 24), start).toLowerCase();
+    const word = (/([a-z][a-z_-]{1,20})[\s:=]*["\[(]?$/.exec(before) || [])[1];
+    let name = null;
+    if (word && DIRECTION[word] && ['ipv4', 'ipv6'].includes(type)) name = `${DIRECTION[word]}ip`;
+    else if (word && KEYWORDS.has(word)) name = word === 'port' ? 'dstport' : word;
+    else if (REQUEST_LINE.test(`"${value}"`)) name = 'request';
+    else {
+      const byType = { ipv4: 'srcip', ipv6: 'srcip', ipport: 'endpoint', integer: 'number', number: 'number', iso8601: 'timestamp', syslogtime: 'timestamp', httpdate: 'timestamp', time: 'time', date: 'date', mac: 'mac', email: 'email', url: 'url', unixpath: 'path', winpath: 'path', uuid: 'uuid', md5: 'hash', sha1: 'hash', sha256: 'hash', fqdn: 'hostname', useragent: 'user_agent', filename: 'file_name', httprequest: 'request' };
+      name = byType[type] || (word && !STOP_WORDS.has(word) ? word : 'field');
+    }
+    let cand = name;
+    let n = 2;
+    while (used && used.has(cand)) cand = `${name}_${n++}`;
+    return { name: cand, type };
+  }
+
   const template = {
     id: 'template',
     label: 'Free-form',
@@ -270,6 +473,16 @@ WDG_MODULE(function (W) {
     cluster,
     clusterRegex,
     inner,
+    manualRegex,
+    spansFromCluster,
+    toManual,
+    newSpanId,
+    addSpan,
+    removeSpan,
+    spanValues,
+    jsRegex,
+    extract,
+    suggestSpanName,
 
     detect() {
       return 0.2;
@@ -305,6 +518,10 @@ WDG_MODULE(function (W) {
 
   /** Non-capturing regex of a template's first tokens, with ≥ 2 literals. */
   function skeleton(c) {
+    if (c.manual) {
+      const all = c.manual.spans.map((s) => Object.assign({}, s, { capture: false }));
+      return manualRegex(c.manual.line, all, 'robust').pattern.replace(/^\^/, '');
+    }
     const copy = { positions: c.positions.map((p) => Object.assign({}, p, { selected: false })) };
     let literals = 0;
     let n = 0;

@@ -71,9 +71,11 @@ Decoder Studio encodes those rules. Each behaviour below was verified against th
 
 Unstructured lines are clustered into event templates (a lightweight take on the Drain log-parsing algorithm). Values that change become fields and are named from their context: `from 10.0.0.1 port 22` gives `srcip` and `srcport`, `for alice` gives `dstuser`, and access logs get `request`, `http_status`, `bytes` and `user_agent`.
 
-Click any token to switch it between literal and field, or Shift+click to capture the rest of the line.
+HTTP request lines are split into their parts (`http_method`, `url`, `http_version`, or `http.request.method`, `url.original`, `http.version` in WCS).
 
-![Free-form template editor](docs/fields.png)
+Each template opens in a **pattern builder** inspired by regex101: the suggested template is highlighted on a sample line, and you can select any part of the log with the mouse to turn it into a field, even inside or across tokens. Click a highlighted field to rename it, turn it into a wildcard (the text varies but is not extracted) or remove it. When you select part of an existing field, the rest of it stays a wildcard, so the pattern keeps matching the other lines. Every field keeps one color in the sample, in the syntax-highlighted regular expression, in the match table and in the live test lines.
+
+![Pattern builder](docs/builder.png)
 
 ### Field naming and types
 

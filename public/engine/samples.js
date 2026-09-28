@@ -133,6 +133,16 @@ WDG_MODULE(function (W) {
       ].join('\n'),
     },
     {
+      id: 'freeform-nginx-proxy',
+      label: 'Free-form · Nginx behind a proxy',
+      source: 'nginx-proxy',
+      text: [
+        '10.30.20.1 - 203.0.113.25 - [07/Sep/2026:16:31:01 +0100] "GET / HTTP/1.1" 200 521 "-" "Mozilla/5.0"',
+        '10.30.20.7 - 198.51.100.4 - [07/Sep/2026:16:32:40 +0100] "POST /api/login?next=/home HTTP/2.0" 302 0 "https://shop.example/" "curl/8.4.0"',
+        '10.30.20.1 - 192.0.2.61 - [07/Sep/2026:16:33:12 +0100] "GET /static/app.css HTTP/1.1" 304 0 "https://shop.example/" "Mozilla/5.0 (X11; Linux x86_64)"',
+      ].join('\n'),
+    },
+    {
       id: 'freeform-access',
       label: 'Free-form · Nginx access log',
       source: 'nginx-custom',

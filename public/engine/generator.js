@@ -166,6 +166,15 @@ WDG_MODULE(function (W) {
     if (analysis.format === 'template') {
       for (const c of analysis.template.clusters) {
         // sync selection / names from the field list
+        if (c.manual) {
+          for (const s of c.manual.spans) {
+            const f = analysis.fields.find((x) => x.key === `t${c.id}.s${s.id}`);
+            if (f) {
+              s.capture = f.selected;
+              s.name = f.name;
+            }
+          }
+        }
         c.positions.forEach((p, pi) => {
           const f = analysis.fields.find((x) => x.key === `t${c.id}.${pi}`);
           if (f) {

@@ -280,12 +280,52 @@ WDG_MODULE(function (W) {
    * Rebuild the template fields after the analyst toggled tokens between
    * literal / variable / rest-of-line. Keeps names and selections.
    */
+  /** Fields of a template edited in the pattern builder (character spans). */
+  function manualFields(analysis, c, previous) {
+    const T = W.formats.template;
+    const perLine = c.lines.map((li) => T.spanValues(c, analysis.lines[li].payload));
+    return c.manual.spans
+      .slice()
+      .sort((a, b) => a.start - b.start)
+      .map((s) => {
+        const key = `t${c.id}.s${s.id}`;
+        const prev = previous.get(key);
+        const values = perLine.filter(Boolean).map((m) => m.get(s.id));
+        const counts = new Map();
+        for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
+        const type = values.length ? W.types.inferType(values.slice(0, 200)) : s.type || 'text';
+        return {
+          key,
+          group: 'template',
+          count: c.lines.length,
+          presence: 1,
+          distinct: counts.size,
+          samples: [...counts.keys()].slice(0, 50),
+          topValues: [...counts.entries()].sort((x, y) => y[1] - x[1]).slice(0, 10),
+          type,
+          quoting: 'never',
+          spaces: values.some((v) => /\s/.test(v)),
+          label: null,
+          hint: { cluster: c.id, span: s.id, manual: true },
+          templateName: s.name,
+          suggested: prev ? prev.suggested : s.name,
+          name: s.name,
+          isLabel: false,
+          selected: !!s.capture,
+        };
+      });
+  }
+
   function refreshTemplate(analysis) {
     if (!analysis.template) return analysis;
     const previous = new Map(analysis.fields.filter((f) => f.group === 'template').map((f) => [f.key, f]));
     const others = analysis.fields.filter((f) => f.group !== 'template');
     const out = [];
     for (const c of analysis.template.clusters) {
+      if (c.manual) {
+        out.push(...manualFields(analysis, c, previous));
+        continue;
+      }
       const used = new Set();
       const tailAt = c.positions.findIndex((p) => p.role === 'tail');
       c.positions.forEach((p, pi) => {

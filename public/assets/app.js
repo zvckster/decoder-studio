@@ -493,7 +493,11 @@
       if (f.group === 'template') {
         remember(f.templateName, v);
         f.templateName = v;
-        state.analysis.template.clusters[f.hint.cluster].positions[f.hint.pos].name = v;
+        const c = state.analysis.template.clusters[f.hint.cluster];
+        if (f.hint.manual) {
+          const s = c.manual.spans.find((x) => x.id === f.hint.span);
+          if (s) s.name = v;
+        } else c.positions[f.hint.pos].name = v;
       } else remember(f.key, v);
       regenerateAndRender();
     }
@@ -506,10 +510,99 @@
 
   function syncTemplateSelection(f) {
     if (f.group !== 'template') return;
-    state.analysis.template.clusters[f.hint.cluster].positions[f.hint.pos].selected = f.selected;
+    const c = state.analysis.template.clusters[f.hint.cluster];
+    if (f.hint.manual) {
+      const s = c.manual.spans.find((x) => x.id === f.hint.span);
+      if (s) s.capture = f.selected;
+    } else c.positions[f.hint.pos].selected = f.selected;
   }
 
-  // -------------------------------------------------- template editor ---
+  // --------------------------------------------------- pattern builder ---
+  // regex101-style editor for free-form templates: select text in the sample
+  // line to create a field; every field keeps one color in the sample, in the
+  // regular expression, in the match table and in the test lines.
+  const GROUP_COLORS = 8;
+  const TPL = () => W.formats.template;
+
+  function sampleOf(c) {
+    return c.manual ? c.manual.line : state.analysis.lines[c.lines[0]].payload;
+  }
+
+  /** Spans shown for a template: its builder spans, or the ones implied by the suggestion. */
+  function displaySpans(c) {
+    const spans = TPL().spansFromCluster(c, sampleOf(c));
+    return spans.sort((a, b) => a.start - b.start);
+  }
+
+  /** HTML of a text with non-overlapping highlighted ranges. */
+  function paint(text, ranges) {
+    let html = '';
+    let cur = 0;
+    for (const r of ranges.slice().sort((a, b) => a.start - b.start)) {
+      if (r.start < cur) continue;
+      html += esc(text.slice(cur, r.start));
+      html += `<span class="${r.cls}"${r.attrs || ''}${r.title ? ` title="${esc(r.title)}"` : ''}>${esc(text.slice(r.start, r.end)) || '&#8203;'}</span>`;
+      cur = r.end;
+    }
+    return html + esc(text.slice(cur));
+  }
+
+  /** Color index of each captured span, in capture order. */
+  function colorMap(spans) {
+    const m = new Map();
+    let i = 0;
+    for (const s of spans) if (s.capture) m.set(s, i++ % GROUP_COLORS);
+    return m;
+  }
+
+  /** Syntax-highlighted PCRE2, capture groups tinted with their field color. */
+  function highlightRegex(re) {
+    let out = '';
+    let group = 0;
+    const stack = [];
+    for (let i = 0; i < re.length; i++) {
+      const ch = re[i];
+      if (ch === '\\') {
+        const tok = re.slice(i, re[i + 1] === 'x' ? i + 4 : i + 2);
+        out += `<span class="${/^\\[dDsSwWhH]$/.test(tok) ? 're-class' : 're-esc'}">${esc(tok)}</span>`;
+        i += tok.length - 1;
+      } else if (ch === '[') {
+        let j = i + 1;
+        if (re[j] === '^') j++;
+        if (re[j] === ']') j++;
+        while (j < re.length && re[j] !== ']') j += re[j] === '\\' ? 2 : 1;
+        out += `<span class="re-set">${esc(re.slice(i, j + 1))}</span>`;
+        i = j;
+      } else if (ch === '(') {
+        if (re[i + 1] === '?') {
+          const m = /^\(\?(?:[:=!|>]|<[=!])/.exec(re.slice(i));
+          const tok = m ? m[0] : '(?';
+          out += `<span class="re-nc">${esc(tok)}`;
+          stack.push('nc');
+          i += tok.length - 1;
+        } else {
+          out += `<span class="re-grp g${group++ % GROUP_COLORS}">(`;
+          stack.push('cap');
+        }
+      } else if (ch === ')') {
+        out += ')</span>';
+        stack.pop();
+      } else if ('+*?'.includes(ch)) out += `<span class="re-q">${ch}</span>`;
+      else if (ch === '{' && /^\{\d+(?:,\d*)?\}/.test(re.slice(i))) {
+        const q = /^\{\d+(?:,\d*)?\}/.exec(re.slice(i))[0];
+        out += `<span class="re-q">${q}</span>`;
+        i += q.length - 1;
+      } else if (ch === '^' || ch === '$') out += `<span class="re-anchor">${ch}</span>`;
+      else if (ch === '|') out += '<span class="re-alt">|</span>';
+      else out += esc(ch);
+    }
+    while (stack.length) {
+      out += '</span>';
+      stack.pop();
+    }
+    return out;
+  }
+
   function renderTemplateEditor() {
     const box = $('#templateEditor');
     const a = state.analysis;
@@ -517,52 +610,255 @@
       box.innerHTML = '';
       return;
     }
-    const clusters = a.template.clusters.slice(0, 40);
-    const html = clusters
+    const mode = settings().mode;
+    const clusters = a.template.clusters.slice(0, 20);
+    box.innerHTML = clusters
       .map((c) => {
-        const tailAt = c.positions.findIndex((p) => p.role === 'tail');
-        const toks = c.positions
-          .map((p, pi) => {
-            if (tailAt >= 0 && pi > tailAt) return '';
-            const cls = ['tok'];
-            if (pi > 0 && p.ws) cls.push('ws');
-            if (p.role === 'var') cls.push('is-var');
-            if (p.role === 'tail') cls.push('is-tail');
-            if ((p.role === 'var' || p.role === 'tail') && !p.selected) cls.push('is-off');
-            const shownTok = p.role === 'tail' ? `${p.values[0]} …` : p.values[0];
-            const label = p.role === 'var' || p.role === 'tail' ? `<span class="tok-name">${esc(p.name || '')}</span>` : '';
-            const tip = p.role === 'const' ? 'Literal. Click to make it a field, Shift+click to capture the rest of the line' : `Field "${p.name}" (${W.types.info(p.type).label}). Click to make it literal`;
-            return `<button type="button" class="${cls.join(' ')}" data-c="${c.id}" data-p="${pi}" title="${esc(tip)}">${label}<span class="tok-val">${esc(shownTok)}</span></button>`;
-          })
+        const line = sampleOf(c);
+        const spans = displaySpans(c);
+        const colors = colorMap(spans);
+        const fieldByKey = (s) => a.fields.find((f) => f.group === 'template' && f.hint.cluster === c.id && (c.manual ? f.hint.span === s.id : f.hint.pos === s.pos));
+        const nameOf = (s) => {
+          const f = fieldByKey(s);
+          return f ? f.name : s.name;
+        };
+        const ranges = spans.map((s) => ({
+          start: s.start,
+          end: s.end,
+          cls: s.capture ? `bl-hl g${colors.get(s)}` : 'bl-hl is-wild',
+          attrs: ` data-start="${s.start}" data-end="${s.end}"${s.id ? ` data-id="${s.id}"` : ''}`,
+          title: `${nameOf(s)}${s.capture ? '' : ' (wildcard, not extracted)'}. Click to edit`,
+        }));
+        const { pattern } = TPL().clusterRegex(c, mode);
+        const info = spans
+          .filter((s) => s.capture)
+          .map((s) => `<tr><td><span class="swatch g${colors.get(s)}"></span></td><td class="mono">${esc(nameOf(s))}</td><td class="mono bl-val">${esc(line.slice(s.start, s.end))}</td></tr>`)
           .join('');
-        return `<div class="tpl"><div class="tpl-head"><h3>Template #${c.id + 1}</h3><span class="hint">${plural(c.lines.length, 'line')}</span></div><div class="tokens">${toks}</div></div>`;
+        const wild = spans.filter((s) => !s.capture).length;
+        const tests = c.lines.slice(0, 30).map((li) => {
+          const text = a.lines[li].payload;
+          const r = TPL().extract(c, text);
+          if (!r) return `<div class="bl-test is-miss"><span class="bl-tag">no match</span>${esc(text)}</div>`;
+          const tr = r.indices
+            .map((ix, i) => (ix ? { start: ix[0], end: ix[1], cls: `bl-hl g${i % GROUP_COLORS}` } : null))
+            .filter(Boolean);
+          return `<div class="bl-test">${paint(text, tr)}</div>`;
+        });
+        return `<div class="card builder" data-c="${c.id}">
+          <div class="bl-head">
+            <h3>Template #${c.id + 1} <span class="hint">${plural(c.lines.length, 'line')}${c.manual ? ' · edited' : ' · suggested'}</span></h3>
+            <div class="btn-group">
+              ${c.manual ? `<button class="btn btn-ghost btn-sm" type="button" data-act="reset" data-c="${c.id}">Reset to suggestion</button>` : ''}
+              <button class="btn btn-ghost btn-sm" type="button" data-act="clear" data-c="${c.id}">Clear fields</button>
+            </div>
+          </div>
+          <p class="hint">Select any part of the log to turn it into a field. Click a highlighted field to rename it, make it a wildcard or remove it.</p>
+          <div class="bl-sample mono" data-c="${c.id}">${paint(line, ranges)}</div>
+          <div class="bl-grid">
+            <div>
+              <div class="bl-label"><span>Regular expression</span><button class="btn btn-ghost btn-sm" type="button" data-act="copy-re" data-c="${c.id}">Copy</button></div>
+              <div class="bl-regex mono">${highlightRegex(pattern)}</div>
+            </div>
+            <div>
+              <div class="bl-label"><span>Match information</span>${wild ? `<span class="hint">${plural(wild, 'wildcard')}</span>` : ''}</div>
+              ${info ? `<table class="bl-info">${info}</table>` : '<p class="hint">No field yet: select text in the sample.</p>'}
+            </div>
+          </div>
+          <div class="bl-label"><span>Test lines</span><span class="hint">${c.lines.length > 30 ? `first 30 of ${c.lines.length}` : plural(c.lines.length, 'line')}</span></div>
+          <div class="bl-tests mono">${tests.join('')}</div>
+        </div>`;
       })
       .join('');
-    box.innerHTML = `<div class="tpl-legend"><span class="l-lit">Literal</span><span class="l-var">Field</span><span class="l-tail">Rest of line</span><span>Click a token to toggle, Shift+click for "rest of line"</span></div>${html}${a.template.clusters.length > 40 ? `<p class="hint">Showing 40 of ${a.template.clusters.length} templates.</p>` : ''}`;
+    if (a.template.clusters.length > 20) box.innerHTML += `<p class="hint">Showing 20 of ${a.template.clusters.length} templates.</p>`;
   }
 
-  function onTokenClick(e) {
-    const b = e.target.closest('.tok');
-    if (!b || !state.analysis) return;
-    const c = state.analysis.template.clusters[Number(b.dataset.c)];
-    const p = c.positions[Number(b.dataset.p)];
-    if (e.shiftKey) {
-      if (p.role === 'tail') p.role = p.isConst ? 'const' : 'var';
-      else {
-        c.positions.forEach((x) => x.role === 'tail' && (x.role = x.isConst ? 'const' : 'var'));
-        p.role = 'tail';
-        p.selected = true;
-        p.name = p.name || 'message';
-      }
-    } else if (p.role === 'const') {
-      p.role = 'var';
-      p.selected = true;
-      if (!p.name) p.name = U.sanitizeFieldName(W.types.info(p.type).label.toLowerCase().split(' ')[0]) || 'value';
-    } else {
-      p.role = 'const';
+  // ---- popover
+  let pop = null;
+  function closePop() {
+    if (pop) pop.hidden = true;
+  }
+
+  function openPop(rect, html, onAction) {
+    if (!pop) {
+      pop = document.createElement('div');
+      pop.className = 'span-pop';
+      pop.setAttribute('role', 'dialog');
+      document.body.appendChild(pop);
     }
+    pop.innerHTML = html;
+    pop.hidden = false;
+    const w = Math.min(340, window.innerWidth - 24);
+    pop.style.width = `${w}px`;
+    pop.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - w - 12))}px`;
+    const below = rect.bottom + 8;
+    pop.style.top = `${below + 200 > window.innerHeight ? Math.max(12, rect.top - 8 - pop.offsetHeight) : below}px`;
+    const input = $('input.input', pop);
+    if (input) {
+      input.focus();
+      input.select();
+    }
+    pop.onclick = (e) => {
+      const b = e.target.closest('[data-act]');
+      if (b) onAction(b.dataset.act, input ? input.value : '', pop);
+    };
+    pop.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onAction('primary', input ? input.value : '', pop);
+      } else if (e.key === 'Escape') closePop();
+    };
+  }
+
+  /** Character offset of a DOM point inside the sample element. */
+  function offsetIn(root, node, offset) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let pos = 0;
+    let n;
+    while ((n = walker.nextNode())) {
+      if (n === node) return pos + offset;
+      pos += n.textContent.length;
+    }
+    // node is an element: count the text before its offset-th child
+    if (node.nodeType === 1) {
+      let p = 0;
+      for (let i = 0; i < offset && i < node.childNodes.length; i++) p += node.childNodes[i].textContent.length;
+      const r = document.createRange();
+      r.setStart(root, 0);
+      r.setEnd(node, 0);
+      return r.toString().length + p;
+    }
+    return pos;
+  }
+
+  function usedNames() {
+    return new Set(state.analysis.fields.filter((f) => f.selected).map((f) => f.name));
+  }
+
+  function afterBuilderChange() {
     W.analyzer.refreshTemplate(state.analysis);
     regenerateAndRender();
+  }
+
+  /** Switch a template to builder mode, carrying over the current field names. */
+  function manualOf(c) {
+    const fresh = !c.manual;
+    const man = TPL().toManual(c, sampleOf(c));
+    if (fresh) {
+      for (const s of man.spans) {
+        const f = state.analysis.fields.find((x) => x.group === 'template' && x.hint.cluster === c.id && x.hint.pos === s.pos);
+        if (f) {
+          s.name = f.name;
+          s.capture = f.selected;
+        }
+      }
+    }
+    return man;
+  }
+
+  function onSampleMouseUp(e) {
+    const el = e.target.closest('.bl-sample');
+    if (!el || !state.analysis) return;
+    const sel = window.getSelection();
+    const c = state.analysis.template.clusters[Number(el.dataset.c)];
+    if (sel && !sel.isCollapsed && el.contains(sel.anchorNode) && el.contains(sel.focusNode)) {
+      const range = sel.getRangeAt(0);
+      let start = offsetIn(el, range.startContainer, range.startOffset);
+      let end = offsetIn(el, range.endContainer, range.endOffset);
+      const line = sampleOf(c);
+      // trim surrounding whitespace from the selection
+      while (start < end && /\s/.test(line[start])) start++;
+      while (end > start && /\s/.test(line[end - 1])) end--;
+      if (end <= start) return;
+      const value = line.slice(start, end);
+      const guess = TPL().suggestSpanName(line, start, end, usedNames());
+      openPop(
+        range.getBoundingClientRect(),
+        `<div class="pop-title">New field</div>
+         <div class="pop-value mono">${esc(U.truncate(value, 120))}</div>
+         <label class="pop-label">Field name <span class="hint">${esc(W.types.info(guess.type).label)}</span></label>
+         <input class="input mono" value="${esc(guess.name)}" spellcheck="false">
+         <div class="pop-actions">
+           <button class="btn btn-primary btn-sm" type="button" data-act="primary">Add field</button>
+           <button class="btn btn-ghost btn-sm" type="button" data-act="wild" title="The text varies but is not extracted">Wildcard</button>
+           <span class="spacer"></span>
+           <button class="btn btn-ghost btn-sm" type="button" data-act="cancel">Cancel</button>
+         </div>`,
+        (act, name) => {
+          if (act === 'cancel') return closePop();
+          const clean = U.sanitizeFieldName(name) || guess.name;
+          const man = manualOf(c);
+          TPL().addSpan(man, { start, end, name: clean, capture: act !== 'wild', type: guess.type });
+          sel.removeAllRanges();
+          closePop();
+          afterBuilderChange();
+        }
+      );
+      return;
+    }
+    // plain click on a highlighted field: edit it
+    const hl = e.target.closest('.bl-hl');
+    if (!hl) return;
+    const start = Number(hl.dataset.start);
+    const end = Number(hl.dataset.end);
+    const man0 = c.manual;
+    const shown = displaySpans(c).find((s) => s.start === start && s.end === end);
+    if (!shown) return;
+    const f = state.analysis.fields.find((x) => x.group === 'template' && x.hint.cluster === c.id && (man0 ? x.hint.span === shown.id : x.hint.pos === shown.pos));
+    const currentName = f ? f.name : shown.name;
+    openPop(
+      hl.getBoundingClientRect(),
+      `<div class="pop-title">Field</div>
+       <div class="pop-value mono">${esc(U.truncate(sampleOf(c).slice(start, end), 120))}</div>
+       <label class="pop-label">Field name</label>
+       <input class="input mono" value="${esc(currentName)}" spellcheck="false">
+       <label class="check"><input type="checkbox" data-role="capture" ${shown.capture ? 'checked' : ''}> Extract this value (unticked: wildcard)</label>
+       <div class="pop-actions">
+         <button class="btn btn-primary btn-sm" type="button" data-act="primary">Save</button>
+         <button class="btn btn-ghost btn-sm" type="button" data-act="remove" title="Treat this text as a literal again">Remove</button>
+         <span class="spacer"></span>
+         <button class="btn btn-ghost btn-sm" type="button" data-act="cancel">Cancel</button>
+       </div>`,
+      (act, name, p) => {
+        if (act === 'cancel') return closePop();
+        const man = manualOf(c);
+        const s = man.spans.find((x) => x.start === start && x.end === end);
+        if (!s) return closePop();
+        if (act === 'remove') TPL().removeSpan(man, s.id);
+        else {
+          s.name = U.sanitizeFieldName(name) || s.name;
+          s.capture = $('input[data-role="capture"]', p).checked;
+        }
+        closePop();
+        afterBuilderChange();
+      }
+    );
+  }
+
+  function onBuilderClick(e) {
+    const b = e.target.closest('[data-act]');
+    if (!b || !state.analysis || !b.closest('.bl-head, .bl-label')) return;
+    const c = state.analysis.template.clusters[Number(b.dataset.c)];
+    if (b.dataset.act === 'reset') {
+      delete c.manual;
+      afterBuilderChange();
+    } else if (b.dataset.act === 'clear') {
+      manualOf(c).spans = [];
+      afterBuilderChange();
+    } else if (b.dataset.act === 'copy-re') {
+      copyText(TPL().clusterRegex(c, settings().mode).pattern, b);
+    }
+  }
+
+  function initBuilder() {
+    const box = $('#templateEditor');
+    box.addEventListener('mouseup', (e) => setTimeout(() => onSampleMouseUp(e), 0));
+    box.addEventListener('click', onBuilderClick);
+    document.addEventListener('mousedown', (e) => {
+      if (pop && !pop.hidden && !pop.contains(e.target)) closePop();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closePop();
+    });
   }
 
   // ----------------------------------------------------- deploy step ---
@@ -1045,7 +1341,7 @@
         regenerateAndRender();
       })
     );
-    $('#templateEditor').addEventListener('click', onTokenClick);
+    initBuilder();
 
     // deploy
     $$('input[name="deployView"]').forEach((el) =>
