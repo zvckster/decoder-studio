@@ -8,11 +8,7 @@
   <meta name="color-scheme" content="light dark">
   <link rel="icon" type="image/png" href="assets/wazuh.png">
   <link rel="stylesheet" href="assets/app.css">
-  <script>
-    // Apply the saved theme before first paint (no flash).
-    try { var t = localStorage.getItem('wds.theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
-    try { var s = JSON.parse(localStorage.getItem('wds.settings') || '{}'); if (s.uiScale) document.documentElement.style.setProperty('--ui-scale', s.uiScale); } catch (e) {}
-  </script>
+  <script src="assets/boot.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#stage">Skip to content</a>

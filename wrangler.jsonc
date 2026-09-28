@@ -1,7 +1,10 @@
 // Cloudflare Workers static assets: publishes the website in ./public.
+// Only the custom domain serves it: workers.dev and preview URLs are off.
 {
   "name": "decoder-studio",
   "compatibility_date": "2025-09-01",
+  "workers_dev": false,
+  "preview_urls": false,
   "assets": {
     "directory": "./public"
   }

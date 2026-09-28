@@ -1147,6 +1147,27 @@
     return missing.length ? { cls: 'partial', icon: '!', text: 'some fields missing' } : { cls: 'ok', icon: '✓', text: 'decoded' };
   }
 
+  /** Names of the fields present in this line but not extracted (generated decoder). */
+  function missingNames(lineIndex) {
+    return state.verdict.coverage.fields.filter((f) => f.missingLines && f.missingLines.includes(lineIndex)).map((f) => f.name);
+  }
+
+  /** Trace list; a skip is flagged when the field is actually present in the line. */
+  function traceItems(r, missing) {
+    const SKIP = 'skipped, not in this line: ';
+    return r.trace
+      .map((t) => {
+        if (t.startsWith(SKIP)) {
+          const names = t.slice(SKIP.length).split(', ');
+          const real = names.filter((n) => missing.includes(n));
+          if (real.length) return `<li class="is-warn">not extracted although present in this line: ${esc(real.join(', '))}</li>`;
+          return `<li class="is-skip">${esc(t)}</li>`;
+        }
+        return `<li>${esc(t)}</li>`;
+      })
+      .join('');
+  }
+
   /** Attach, per field, the lines where it was expected but not extracted. */
   function markMissing() {
     const a = state.analysis;
@@ -1227,7 +1248,7 @@
         <pre class="logtest">${esc(W.simulator.logtest(r))}</pre>
         ${r.fields.length ? `<div class="table-wrap" style="max-height:30vh;margin-bottom:12px"><table class="table fields-out"><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>${fieldsRows}</tbody></table></div>` : ''}
         <h3>Decoding trace</h3>
-        <ol class="trace">${r.trace.map((t) => `<li>${esc(t)}</li>`).join('')}</ol>`;
+        <ol class="trace">${traceItems(r, custom ? [] : missingNames(lines[state.line].index))}</ol>`;
     }
 
     if (!custom) {

@@ -228,7 +228,10 @@ WDG_MODULE(function (W) {
           const r = text === null ? null : c.info.regex.exec(text);
           if (!r) {
             res.siblings.failed++;
-            res.trace.push(`regex of "${cd.name}" did not match${cd.order ? ` (${cd.order.join(', ')})` : ''}`);
+            const fields = cd.order ? cd.order.join(', ') : '';
+            const isSibling = c.get_next || chain.some((x, j) => j !== idx && x.d.name === cd.name);
+            // A sibling that does not match is normal: its field is simply absent from this line.
+            res.trace.push(isSibling ? `skipped, not in this line: ${fields}` : `regex of "${cd.name}" did not match, decoding stops here${fields ? ` (${fields})` : ''}`);
             if (c.get_next) {
               idx++;
               continue;
