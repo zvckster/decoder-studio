@@ -26,7 +26,7 @@ It supports CEF, LEEF, key=value, JSON, CSV, XML, RFC 5424 syslog and free-form 
 ```bash
 git clone https://github.com/Zvckster/decoder-studio.git
 cd decoder-studio
-# then open index.html in any modern browser
+# then open public/index.html in any modern browser
 ```
 
 No installation is needed. The page works from `file://`, offline and in air-gapped networks, which makes it safe to use with production logs.
@@ -170,29 +170,36 @@ Options: `--format`, `--scheme wazuh|wcs|custom`, `--prefix`, `--mode robust|str
 ## Project layout
 
 ```
-index.html              user interface
-assets/app.css          design tokens, light and dark themes, components
-assets/app.js           UI controller (state, rendering, template editor, tester)
-engine/
-  core.js               utilities, PCRE2-safe escaping, module loader
-  predecoder.js         port of OS_CleanMSG
-  valuetypes.js         type inference and strict patterns
-  fieldmap.js           vendor keys to Wazuh static and ECS names
-  formats/              cef, leef, kv, json, csv, xml, template
-  analyzer.js           detection, parsing, aggregation, naming
-  generator.js          decoder model and XML output
-  rules.js              companion rules
-  regex.js              PCRE2, OS_Regex and OS_Match translation, backtracking checks
-  xmlreader.js          Wazuh-style decoder file reader
-  simulator.js          port of DecodeEvent and OS_AddOSDecoder
-  linter.js             static checks and coverage verification
-  samples.js            sample library
-cli.js                  command line
-tests/                  test suite (node:test)
-docs/                   screenshots
+public/                   the website (everything that gets published)
+  index.html              user interface
+  assets/app.css          design tokens, light and dark themes, components
+  assets/app.js           UI controller (state, rendering, template editor, tester)
+  assets/wazuh.png        logo and favicon
+  engine/
+    core.js               utilities, PCRE2-safe escaping, module loader
+    predecoder.js         port of OS_CleanMSG
+    valuetypes.js         type inference and strict patterns
+    fieldmap.js           vendor keys to Native Wazuh and WCS names
+    formats/              cef, leef, kv, json, csv, xml, template
+    analyzer.js           detection, parsing, aggregation, naming
+    generator.js          decoder model and XML output
+    rules.js              companion rules
+    regex.js              PCRE2, OS_Regex and OS_Match translation, backtracking checks
+    xmlreader.js          Wazuh-style decoder file reader
+    simulator.js          port of DecodeEvent and OS_AddOSDecoder
+    linter.js             static checks and coverage verification
+    samples.js            sample library
+cli.js                    command line
+tests/                    test suite (node:test)
+docs/                     screenshots
+wrangler.jsonc            Cloudflare Workers static assets configuration
 ```
 
-Engine files are plain scripts registered through `WDG_MODULE(fn)`. The browser loads them directly, Node loads them through `engine/node.js`, and the UI rebuilds them inside a Web Worker for sandboxed tests.
+Engine files are plain scripts registered through `WDG_MODULE(fn)`. The browser loads them directly, Node loads them through `public/engine/node.js`, and the UI rebuilds them inside a Web Worker for sandboxed tests.
+
+### Hosting
+
+The site is static, so any static host works. On Cloudflare Workers, `npx wrangler deploy` publishes the `public/` folder as configured in `wrangler.jsonc`. On Cloudflare Pages, set no build command and `public` as the output directory.
 
 Run the tests with:
 

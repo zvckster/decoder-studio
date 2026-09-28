@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const W = require('../engine/node.js');
+const W = require('../public/engine/node.js');
 
 const sample = (id) => W.samples.find((s) => s.id === id);
 const build = (id, cfg) => {

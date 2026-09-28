@@ -1,0 +1,3 @@
+# Node-only helpers, not needed by the website
+engine/node.js
+engine/manifest.json

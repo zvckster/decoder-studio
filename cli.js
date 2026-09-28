@@ -21,7 +21,7 @@
  */
 'use strict';
 const fs = require('fs');
-const W = require('./engine/node.js');
+const W = require('./public/engine/node.js');
 
 function parseArgs(argv) {
   const args = { _: [] };

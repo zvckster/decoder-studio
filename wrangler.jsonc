@@ -1,0 +1,8 @@
+// Cloudflare Workers static assets: publishes the website in ./public.
+{
+  "name": "decoder-studio",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./public"
+  }
+}
