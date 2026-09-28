@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Decoder Studio for Wazuh</title>
+  <meta name="description" content="Generate, test and validate Wazuh decoders and rules from sample logs. Runs entirely in your browser.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" type="image/png" href="assets/wazuh.png">
+  <link rel="stylesheet" href="assets/app.css">
+  <script>
+    // Apply the saved theme before first paint (no flash).
+    try { var t = localStorage.getItem('wds.theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#stage">Skip to content</a>
+
+  <header class="appbar">
+    <div class="brand">
+      <img class="brand-logo" src="assets/wazuh.png" alt="" width="30" height="30">
+      <div class="brand-text">
+        <span class="brand-name">Decoder Studio</span>
+        <span class="brand-sub">for Wazuh</span>
+      </div>
+    </div>
+    <div class="appbar-actions">
+      <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="icon-btn" id="themeBtn" type="button" aria-label="Toggle color theme" title="Toggle theme">
+        <svg class="i-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="icon-btn" id="helpBtn" type="button" aria-label="Help and shortcuts" title="Help">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-1 .6-1.5 1.1-1.5 2.2M12 17h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <!-- ============================== STEP 1 : PASTE LOGS ============================== -->
+    <section class="step" id="step-1" aria-labelledby="step1Title">
+      <div class="step-head">
+        <div>
+          <h1 id="step1Title">Paste your logs</h1>
+          <p class="step-lead">Raw events, one per line, exactly as Wazuh receives them. Keep the syslog header: it decides which decoders Wazuh even tries.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="source-grid">
+          <div class="field">
+            <label for="decoderName">Decoder name</label>
+            <input id="decoderName" class="input mono" type="text" placeholder="e.g. trendmicro-apex" spellcheck="false" autocomplete="off">
+            <p class="hint" id="decoderNameHint">Letters, digits, <code>-</code> <code>_</code> <code>.</code> are allowed. Used for the parent, children, file names and rules.</p>
+          </div>
+          <div class="field">
+            <label for="formatSelect">Log format</label>
+            <select id="formatSelect" class="select">
+              <option value="auto">Auto-detect</option>
+              <option value="cef">CEF (ArcSight Common Event Format)</option>
+              <option value="leef">LEEF (QRadar 1.0 / 2.0)</option>
+              <option value="kv">Key=Value</option>
+              <option value="json">JSON</option>
+              <option value="csv">Delimited / CSV</option>
+              <option value="xml">XML</option>
+              <option value="template">Free-form text</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sampleSelect">Start from a sample</label>
+            <select id="sampleSelect" class="select">
+              <option value="">Choose a sample…</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="label-row">
+            <label for="logs">Sample logs</label>
+            <span class="count" id="lineCount">0 lines</span>
+          </div>
+          <div class="dropzone" id="dropzone">
+            <textarea id="logs" class="input mono logs" spellcheck="false" placeholder="Paste raw events here, one per line.&#10;&#10;5 to 50 varied lines give the best result. Empty lines are removed automatically. You can also drop a .log / .txt / .json / .csv file here."></textarea>
+            <div class="drop-overlay" aria-hidden="true">Drop the log file</div>
+          </div>
+        </div>
+
+        <div class="source-actions">
+          <label class="btn btn-ghost" for="fileInput">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Open file
+          </label>
+          <input id="fileInput" type="file" accept=".log,.txt,.json,.csv,.xml,.ndjson,text/*" hidden>
+          <button class="btn btn-ghost" id="clearBtn" type="button">Clear</button>
+          <span class="spacer"></span>
+          <button class="btn btn-primary" id="analyzeBtn" type="button"><span>Analyze logs</span> <kbd>Ctrl</kbd><kbd>Enter</kbd></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== STEP 2 : REVIEW FIELDS ============================== -->
+    <section class="step" id="step-2" aria-labelledby="step2Title" hidden>
+      <div class="step-head">
+        <div>
+          <h1 id="step2Title">Review fields</h1>
+          <p class="step-lead">Untick what you do not need and rename where it helps. Every change is re-verified instantly.</p>
+        </div>
+      </div>
+
+      <div class="health">
+        <div class="tile"><span class="tile-label">Format</span><span class="tile-value" id="hFormat">-</span><span class="tile-sub" id="hFormatSub">&nbsp;</span></div>
+        <div class="tile"><span class="tile-label">Lines</span><span class="tile-value" id="hLines">-</span><span class="tile-sub" id="hLinesSub">&nbsp;</span></div>
+        <div class="tile"><span class="tile-label">Fields</span><span class="tile-value" id="hFields">-</span><span class="tile-sub" id="hFieldsSub">&nbsp;</span></div>
+        <div class="tile tile-health" id="hHealthTile"><span class="tile-label">Verification</span><span class="tile-value" id="hHealth">-</span><span class="tile-sub" id="hHealthSub">&nbsp;</span></div>
+      </div>
+
+      <div id="analysisNotes"></div>
+
+      <details class="card details" id="detailsBox">
+        <summary><span>Detection and pre-decoding details</span><span class="hint">how Wazuh will see these lines</span></summary>
+        <div id="overviewContent"></div>
+      </details>
+
+      <div id="templateEditor"></div>
+
+      <div class="card">
+        <div class="toolbar">
+          <div class="search">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <label class="sr-only" for="fieldFilter">Filter fields</label>
+            <input id="fieldFilter" class="input" type="search" placeholder="Filter fields…" autocomplete="off">
+          </div>
+          <div class="btn-group">
+            <button class="btn btn-ghost btn-sm" data-select="all" type="button">Select all</button>
+            <button class="btn btn-ghost btn-sm" data-select="none" type="button">None</button>
+            <button class="btn btn-ghost btn-sm" data-select="suggested" type="button">Reset to suggested</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="table fields-table">
+            <thead>
+              <tr>
+                <th class="col-check"><span class="sr-only">Extract</span></th>
+                <th class="col-source">Source</th>
+                <th class="col-arrow" aria-hidden="true"></th>
+                <th class="col-name">Wazuh field</th>
+                <th class="col-type">Type</th>
+                <th class="col-presence">Presence</th>
+                <th>Sample values</th>
+              </tr>
+            </thead>
+            <tbody id="fieldsBody"></tbody>
+          </table>
+        </div>
+        <datalist id="fieldCatalogue"></datalist>
+      </div>
+    </section>
+
+    <!-- ============================== STEP 3 : VERIFY ============================== -->
+    <section class="step" id="step-3" aria-labelledby="step3Title" hidden>
+      <div class="step-head">
+        <div>
+          <h1 id="step3Title">Verify</h1>
+          <p class="step-lead">Every line is run through an emulation of <code>wazuh-analysisd</code>. Pick a line to see its <code>wazuh-logtest</code> output.</p>
+        </div>
+        <div class="segmented" role="radiogroup" aria-label="Decoder under test">
+          <label><input type="radio" name="testSource" value="generated" checked><span>Generated decoder</span></label>
+          <label><input type="radio" name="testSource" value="custom"><span>My own XML</span></label>
+        </div>
+      </div>
+
+      <div class="card" id="customXmlBox" hidden>
+        <label class="sr-only" for="customXml">Decoder XML to test</label>
+        <textarea id="customXml" class="input mono xml-editor" spellcheck="false" wrap="off" placeholder="Paste one or more <decoder> blocks, e.g. your existing local_decoder.xml. The logs from step 1 are used as input."></textarea>
+        <div class="source-actions">
+          <button class="btn btn-primary btn-sm" id="runCustomBtn" type="button">Run test</button>
+          <span class="hint">Supports OS_Regex, OS_Match and PCRE2, &lt;var&gt;, offsets, siblings and JSON_Decoder.</span>
+          <span class="spacer"></span>
+          <label class="check" title="Wazuh's built-in json decoder is loaded before custom decoders"><input type="checkbox" id="builtinJsonChk" checked> Include built-in <code>json</code> decoder</label>
+        </div>
+      </div>
+
+      <div id="testIssues"></div>
+      <div class="test-grid">
+        <div class="test-lines" id="testLines" role="listbox" aria-label="Sample lines"></div>
+        <div class="test-detail" id="testDetail"></div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">Field coverage</h2>
+        <div id="coverage"></div>
+      </div>
+    </section>
+
+    <!-- ============================== STEP 4 : DEPLOY ============================== -->
+    <section class="step" id="step-4" aria-labelledby="step4Title" hidden>
+      <div class="step-head">
+        <div>
+          <h1 id="step4Title">Deploy</h1>
+          <p class="step-lead">Download the decoder, install it on the manager and confirm with <code>wazuh-logtest</code>.</p>
+        </div>
+        <div class="segmented" role="radiogroup" aria-label="File">
+          <label><input type="radio" name="deployView" value="decoder" checked><span>Decoder</span></label>
+          <label><input type="radio" name="deployView" value="rules"><span>Rules (optional)</span></label>
+        </div>
+      </div>
+
+      <div id="deployDecoder">
+        <div class="card">
+          <div class="toolbar">
+            <div class="toolbar-title" id="decoderSummary"></div>
+            <div class="btn-group">
+              <button class="btn btn-ghost btn-sm" id="editDecoderBtn" type="button" title="Open this XML in the Verify step to tweak it">Edit and test</button>
+              <button class="btn btn-secondary btn-sm" id="copyDecoderBtn" type="button">Copy</button>
+              <button class="btn btn-primary btn-sm" id="downloadDecoderBtn" type="button">Download .xml</button>
+            </div>
+          </div>
+          <div id="decoderNotes"></div>
+          <div class="code" id="decoderCode" tabindex="0" aria-label="Generated decoder XML"></div>
+        </div>
+      </div>
+
+      <div id="deployRules" hidden>
+        <div class="notes"><div class="note"><span class="note-icon" aria-hidden="true">i</span><div>A decoder only extracts fields: Wazuh raises alerts from <strong>rules</strong>. Without a rule matching this decoder, events are decoded but never alerted on. These rules are a starting point (a base rule on the decoder, one rule per event ID seen in your samples, and severity tiers). Skip them if you write your own.</div></div></div>
+        <div class="card">
+          <div class="toolbar wrap">
+            <div class="inline-settings">
+              <label>Base rule ID <input id="ruleIdInput" class="input input-sm mono" type="number" min="100000" max="120000" value="100100"></label>
+              <label>Base level
+                <select id="ruleLevelSelect" class="select select-sm">
+                  <option value="0">0 (silent)</option>
+                  <option value="3" selected>3 (low)</option>
+                  <option value="5">5</option>
+                  <option value="7">7</option>
+                </select>
+              </label>
+              <label class="check"><input type="checkbox" id="eventRulesChk" checked> One rule per event ID</label>
+              <label class="check"><input type="checkbox" id="sevRulesChk" checked> Severity tiers</label>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-secondary btn-sm" id="copyRulesBtn" type="button">Copy</button>
+              <button class="btn btn-primary btn-sm" id="downloadRulesBtn" type="button">Download .xml</button>
+            </div>
+          </div>
+          <div class="code" id="rulesCode" tabindex="0" aria-label="Generated rules XML"></div>
+        </div>
+      </div>
+
+      <div class="card install">
+        <h2 class="card-title">Install on the manager</h2>
+        <ol class="install-steps" id="installSteps"></ol>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>Not affiliated with Wazuh, Inc.</span>
+    </footer>
+  </main>
+
+  <!-- ============================== STEPPER ============================== -->
+  <nav class="stepper" aria-label="Steps">
+    <div class="stepper-inner">
+      <button class="btn btn-ghost" id="backBtn" type="button">Back</button>
+      <ol class="steps">
+        <li><button type="button" class="step-btn" data-step="1"><span class="step-dot">1</span><span class="step-label">Paste logs</span></button></li>
+        <li><button type="button" class="step-btn" data-step="2"><span class="step-dot">2</span><span class="step-label">Review fields</span></button></li>
+        <li><button type="button" class="step-btn" data-step="3"><span class="step-dot">3</span><span class="step-label">Verify</span></button></li>
+        <li><button type="button" class="step-btn" data-step="4"><span class="step-dot">4</span><span class="step-label">Deploy</span></button></li>
+      </ol>
+      <div class="stepper-right">
+        <span class="health-chip" id="healthChip" hidden></span>
+        <button class="btn btn-primary" id="nextBtn" type="button">Next</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ============================== SETTINGS ============================== -->
+  <dialog class="dialog dialog-wide" id="settingsDialog" aria-labelledby="settingsTitle">
+    <form method="dialog">
+      <header class="dialog-head"><h2 id="settingsTitle">Settings</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></header>
+      <div class="dialog-body settings-body">
+        <section class="setting-group">
+          <h3>Log transport</h3>
+          <div class="segmented" role="radiogroup" aria-label="How logs reach Wazuh">
+            <label><input type="radio" name="transport" value="syslog" checked><span>Syslog (remoted)</span></label>
+            <label><input type="radio" name="transport" value="file"><span>Agent file</span></label>
+            <label><input type="radio" name="transport" value="api"><span>API</span></label>
+          </div>
+          <p class="hint" id="transportHint"></p>
+        </section>
+
+        <section class="setting-group">
+          <h3>Field naming</h3>
+          <div class="segmented" role="radiogroup" aria-label="Naming scheme">
+            <label><input type="radio" name="scheme" value="wazuh" checked><span>Native Wazuh</span></label>
+            <label><input type="radio" name="scheme" value="wcs"><span>WCS v5</span></label>
+            <label><input type="radio" name="scheme" value="custom"><span>Custom</span></label>
+          </div>
+          <p class="hint" id="schemeHint"></p>
+          <div class="setting-row">
+            <label for="prefixInput">Prefix for dynamic fields <span class="optional">optional</span></label>
+            <input id="prefixInput" class="input mono" type="text" placeholder="e.g. apex" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="custom-map" id="customMapBox" hidden>
+            <span class="hint" id="customMapCount"></span>
+            <span class="spacer"></span>
+            <button class="btn btn-ghost btn-sm" id="exportMapBtn" type="button">Export</button>
+            <label class="btn btn-ghost btn-sm" for="importMapInput">Import</label>
+            <input id="importMapInput" type="file" accept=".json,application/json" hidden>
+            <button class="btn btn-ghost btn-sm" id="clearMapBtn" type="button">Clear</button>
+          </div>
+        </section>
+
+        <section class="setting-group">
+          <h3>Extraction</h3>
+          <div class="setting-grid">
+            <div>
+              <span class="setting-label">Capture</span>
+              <div class="segmented" role="radiogroup" aria-label="Capture mode">
+                <label title="Values are delimited by the format grammar: never truncated, tolerant to unexpected content"><input type="radio" name="mode" value="robust" checked><span>Robust</span></label>
+                <label title="Values must match their inferred type (IP, integer...): stricter, may drop unexpected values"><input type="radio" name="mode" value="strict"><span>Strict</span></label>
+              </div>
+            </div>
+            <div>
+              <span class="setting-label">Layout</span>
+              <div class="segmented" role="radiogroup" aria-label="Decoder layout">
+                <label title="One sibling decoder per field: a missing field never breaks the others (recommended)"><input type="radio" name="strategy" value="siblings" checked><span>Siblings</span></label>
+                <label title="Fields always present in a fixed order share chunked regexes: fewer evaluations"><input type="radio" name="strategy" value="compact"><span>Compact</span></label>
+              </div>
+            </div>
+            <div>
+              <span class="setting-label">JSON extraction</span>
+              <div class="segmented" role="radiogroup" aria-label="JSON mode">
+                <label title="Wazuh's JSON_Decoder plugin: every key, original names"><input type="radio" name="jsonMode" value="plugin" checked><span>JSON plugin</span></label>
+                <label title="Regex siblings: only selected keys, renamable"><input type="radio" name="jsonMode" value="regex"><span>Regex</span></label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <details class="setting-group advanced">
+          <summary><h3>Advanced</h3></summary>
+          <div class="setting-row">
+            <label for="prematchInput">Custom parent prematch <span class="optional">PCRE2, current source only</span></label>
+            <input id="prematchInput" class="input mono" type="text" placeholder="leave empty to use the inferred fingerprint" spellcheck="false" autocomplete="off">
+          </div>
+        </details>
+      </div>
+      <footer class="dialog-foot"><span class="hint">Saved in this browser and applied instantly.</span><button class="btn btn-primary" value="close">Done</button></footer>
+    </form>
+  </dialog>
+
+  <!-- ============================== HELP ============================== -->
+  <dialog class="dialog" id="helpDialog" aria-labelledby="helpTitle">
+    <form method="dialog">
+      <header class="dialog-head"><h2 id="helpTitle">How it works</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></header>
+      <div class="dialog-body">
+        <ol class="howto">
+          <li><strong>Paste logs</strong> exactly as the manager receives them, syslog header included. The header decides which decoders Wazuh even tries.</li>
+          <li><strong>Review fields.</strong> Untick what you do not need and rename. For free-form logs, click tokens to turn them into fields.</li>
+          <li><strong>Verify.</strong> Every change re-runs an emulation of <code>wazuh-analysisd</code> over all your lines: pre-decoding, program_name routing, siblings, offsets and the JSON plugin.</li>
+          <li><strong>Deploy.</strong> Save the decoder to <code>/var/ossec/etc/decoders/</code>, restart the manager and confirm with <code>wazuh-logtest</code>.</li>
+        </ol>
+        <h3>Shortcuts</h3>
+        <dl class="shortcuts">
+          <dt><kbd>Ctrl</kbd> <kbd>Enter</kbd></dt><dd>Analyze logs</dd>
+          <dt><kbd>Alt</kbd> <kbd>1</kbd> to <kbd>4</kbd></dt><dd>Go to a step</dd>
+          <dt>Click a token</dt><dd>Free-form: literal or field</dd>
+          <dt><kbd>Shift</kbd> + click</dt><dd>Free-form: capture the rest of the line</dd>
+        </dl>
+        <h3>Why the output looks the way it does</h3>
+        <ul class="why">
+          <li>Two parents with the same name: one with <code>&lt;program_name&gt;</code>, one with <code>&lt;prematch&gt;</code>. Events carrying a syslog program name are only matched against decoders that declare one.</li>
+          <li>The parent prematch is anchored on the earliest stable fields of the line, so other sources are rejected on their first characters.</li>
+          <li>One sibling child per field: Wazuh runs every sibling, so a missing field never breaks the others.</li>
+          <li>PCRE2 without raw <code>&lt;</code> (written <code>\x3c</code>): Wazuh's XML reader does not decode entities.</li>
+          <li>Plain JSON is claimed by Wazuh's built-in <code>json</code> decoder, so you get rules for it instead of a decoder that would never run.</li>
+        </ul>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Engine (plain scripts, no build step) -->
+  <script src="engine/core.js"></script>
+  <script src="engine/predecoder.js"></script>
+  <script src="engine/valuetypes.js"></script>
+  <script src="engine/fieldmap.js"></script>
+  <script src="engine/formats/common.js"></script>
+  <script src="engine/formats/cef.js"></script>
+  <script src="engine/formats/leef.js"></script>
+  <script src="engine/formats/kv.js"></script>
+  <script src="engine/formats/json.js"></script>
+  <script src="engine/formats/csv.js"></script>
+  <script src="engine/formats/xml.js"></script>
+  <script src="engine/formats/template.js"></script>
+  <script src="engine/analyzer.js"></script>
+  <script src="engine/generator.js"></script>
+  <script src="engine/rules.js"></script>
+  <script src="engine/regex.js"></script>
+  <script src="engine/xmlreader.js"></script>
+  <script src="engine/simulator.js"></script>
+  <script src="engine/linter.js"></script>
+  <script src="engine/samples.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

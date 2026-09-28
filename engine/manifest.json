@@ -1,0 +1,22 @@
+[
+  "core.js",
+  "predecoder.js",
+  "valuetypes.js",
+  "fieldmap.js",
+  "formats/common.js",
+  "formats/cef.js",
+  "formats/leef.js",
+  "formats/kv.js",
+  "formats/json.js",
+  "formats/csv.js",
+  "formats/xml.js",
+  "formats/template.js",
+  "analyzer.js",
+  "generator.js",
+  "rules.js",
+  "regex.js",
+  "xmlreader.js",
+  "simulator.js",
+  "linter.js",
+  "samples.js"
+]

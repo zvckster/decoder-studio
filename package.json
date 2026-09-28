@@ -1,0 +1,17 @@
+{
+  "name": "decoder-studio",
+  "version": "2.0.0",
+  "description": "Generate, test and validate Wazuh decoders and rules from sample logs: CEF, LEEF, key=value, JSON, CSV, XML, RFC 5424 and free-form text. Runs 100% locally.",
+  "private": true,
+  "license": "MIT",
+  "author": "Ayman Wadi",
+  "homepage": "https://github.com/Zvckster/decoder-studio#readme",
+  "repository": { "type": "git", "url": "https://github.com/Zvckster/decoder-studio.git" },
+  "keywords": ["wazuh", "siem", "decoder", "log-parsing", "cef", "leef", "security", "soc", "detection-engineering"],
+  "bin": { "decoder-studio": "cli.js" },
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\"",
+    "cli": "node cli.js"
+  },
+  "engines": { "node": ">=18" }
+}
