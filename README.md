@@ -80,6 +80,10 @@ Each template opens in a **pattern builder** inspired by regex101: the suggested
 ### Field naming and types
 
 - Three naming schemes: Native Wazuh static fields (`srcip`, `dstuser`, `action`, `id`, `url`, `status`, `system_name`...), WCS v5 (the ECS-based schema of Wazuh 5, unknown fields under `custom.*`), or your own remembered mapping. Static fields unlock GeoIP enrichment, active response and dedicated rule options.
+- A field picker on every name: fields that fit the value type come first (an IP shows the WCS IP fields), the list narrows as you type, and any custom name is accepted with a light note when it is not part of the schema.
+
+![Field picker](docs/picker.png)
+
 - About 300 vendor keys are mapped to 45 field concepts (CEF dictionary, LEEF attributes, Fortinet, Palo Alto, Check Point, Windows, common JSON keys).
 - Type inference for IPv4, IPv6, IP:port, MAC, UUID, hashes, epoch, numbers, ISO-8601, syslog and HTTP dates, e-mail, URL, paths, file names, host names, user agents and HTTP request lines. Types drive naming, linting and the optional strict capture mode.
 
@@ -105,7 +109,7 @@ Checks the 1024-byte limit, raw `<`, XML entities, the OS_Regex `|` pitfall, cap
 
 ## Workflow
 
-The app is a four-step flow, with the steps in a bar at the bottom of the screen and a live verification badge next to them.
+The app is a four-step flow. The steps sit in the top bar with an icon each and can be clicked at any time; a floating panel in the bottom-right corner shows the live verification status and the next action. The home button clears the session to start fresh (settings and custom mapping are kept).
 
 1. **Paste logs** exactly as the manager receives them, syslog header included. The header decides which decoders Wazuh even tries. 5 to 50 varied lines work best. Empty lines are removed automatically, and long lines wrap so nothing hides off-screen. You can also open or drop a file, or start from a sample.
 2. **Review fields.** Untick what you do not need and rename. Sample values show up to three lines so you can judge each field.
@@ -140,7 +144,9 @@ Settings live behind the gear icon, are saved in the browser and apply instantly
 
 The parent prematch is built from the earliest stable fields of the line (for example `^date=... time=... devname=` for FortiGate), so logs from other sources are rejected on their first characters.
 
-Keyboard: `Ctrl+Enter` analyzes, `Alt+1` to `Alt+4` go to a step.
+Display size (100%, 110%, 120% or 130%, default 110%) scales the whole interface.
+
+Keyboard: `Ctrl+Enter` analyzes, `Alt+1` to `Alt+4` go to a step, arrows and Enter pick a field in the picker.
 
 Deep links are available for demos, for example `index.html?sample=cef-trendmicro&step=4&theme=dark`.
 

@@ -11,6 +11,7 @@
   <script>
     // Apply the saved theme before first paint (no flash).
     try { var t = localStorage.getItem('wds.theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+    try { var s = JSON.parse(localStorage.getItem('wds.settings') || '{}'); if (s.uiScale) document.documentElement.style.setProperty('--ui-scale', s.uiScale); } catch (e) {}
   </script>
 </head>
 <body>
@@ -24,7 +25,19 @@
         <span class="brand-sub">for Wazuh</span>
       </div>
     </div>
+    <nav class="steps-nav" aria-label="Steps">
+      <ol class="steps">
+        <li><button type="button" class="step-btn" data-step="1" title="Paste logs (Alt+1)"><span class="step-dot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v3H9z"/><path d="M9 5H6.5A1.5 1.5 0 005 6.5v13A1.5 1.5 0 006.5 21h11a1.5 1.5 0 001.5-1.5v-13A1.5 1.5 0 0017.5 5H15"/><path d="M9 12h6M9 16h4"/></svg></span><span class="step-label">Paste logs</span></button></li>
+        <li><button type="button" class="step-btn" data-step="2" title="Review fields (Alt+2)"><span class="step-dot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6h10M10 12h10M10 18h10"/><path d="M4 6l1.2 1.2L7.5 5M4 12l1.2 1.2 2.3-2.2M4 18l1.2 1.2 2.3-2.2"/></svg></span><span class="step-label">Review fields</span></button></li>
+        <li><button type="button" class="step-btn" data-step="3" title="Verify (Alt+3)"><span class="step-dot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></span><span class="step-label">Verify</span></button></li>
+        <li><button type="button" class="step-btn" data-step="4" title="Deploy (Alt+4)"><span class="step-dot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M5 14v4.5A1.5 1.5 0 006.5 20h11a1.5 1.5 0 001.5-1.5V14"/></svg></span><span class="step-label">Deploy</span></button></li>
+      </ol>
+    </nav>
+
     <div class="appbar-actions">
+      <button class="icon-btn" id="homeBtn" type="button" aria-label="Start fresh" title="Start fresh">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 11l9-7 9 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 9.5V20h13V9.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20v-6h4v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      </button>
       <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings" title="Settings">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
       </button>
@@ -95,7 +108,7 @@
           <input id="fileInput" type="file" accept=".log,.txt,.json,.csv,.xml,.ndjson,text/*" hidden>
           <button class="btn btn-ghost" id="clearBtn" type="button">Clear</button>
           <span class="spacer"></span>
-          <button class="btn btn-primary" id="analyzeBtn" type="button"><span>Analyze logs</span> <kbd>Ctrl</kbd><kbd>Enter</kbd></button>
+          <span class="hint">Press <kbd>Ctrl</kbd> <kbd>Enter</kbd> to analyze</span>
         </div>
       </div>
     </section>
@@ -259,22 +272,24 @@
     </footer>
   </main>
 
-  <!-- ============================== STEPPER ============================== -->
-  <nav class="stepper" aria-label="Steps">
-    <div class="stepper-inner">
-      <button class="btn btn-ghost" id="backBtn" type="button">Back</button>
-      <ol class="steps">
-        <li><button type="button" class="step-btn" data-step="1"><span class="step-dot">1</span><span class="step-label">Paste logs</span></button></li>
-        <li><button type="button" class="step-btn" data-step="2"><span class="step-dot">2</span><span class="step-label">Review fields</span></button></li>
-        <li><button type="button" class="step-btn" data-step="3"><span class="step-dot">3</span><span class="step-label">Verify</span></button></li>
-        <li><button type="button" class="step-btn" data-step="4"><span class="step-dot">4</span><span class="step-label">Deploy</span></button></li>
-      </ol>
-      <div class="stepper-right">
-        <span class="health-chip" id="healthChip" hidden></span>
-        <button class="btn btn-primary" id="nextBtn" type="button">Next</button>
-      </div>
-    </div>
-  </nav>
+  <!-- ============================== ACTION DOCK ============================== -->
+  <div class="dock" role="region" aria-label="Next action">
+    <span class="health-chip" id="healthChip" hidden></span>
+    <button class="btn btn-ghost" id="backBtn" type="button" aria-label="Previous step">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back
+    </button>
+    <button class="btn btn-primary" id="nextBtn" type="button">Next</button>
+  </div>
+
+  <!-- ============================== CONFIRM ============================== -->
+  <dialog class="dialog dialog-small" id="confirmDialog" aria-labelledby="confirmTitle">
+    <form method="dialog">
+      <header class="dialog-head"><h2 id="confirmTitle">Start fresh?</h2></header>
+      <div class="dialog-body"><p>This clears the logs, the fields and the decoder of the current session. Your settings and custom mapping are kept.</p></div>
+      <footer class="dialog-foot"><span></span><div class="btn-group"><button class="btn btn-ghost" value="cancel">Cancel</button><button class="btn btn-primary" value="ok" id="confirmOk">Start fresh</button></div></footer>
+    </form>
+  </dialog>
 
   <!-- ============================== SETTINGS ============================== -->
   <dialog class="dialog dialog-wide" id="settingsDialog" aria-labelledby="settingsTitle">
@@ -337,6 +352,16 @@
                 <label title="Regex siblings: only selected keys, renamable"><input type="radio" name="jsonMode" value="regex"><span>Regex</span></label>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section class="setting-group">
+          <h3>Display size</h3>
+          <div class="segmented" role="radiogroup" aria-label="Display size">
+            <label><input type="radio" name="uiScale" value="1"><span>100%</span></label>
+            <label><input type="radio" name="uiScale" value="1.1" checked><span>110%</span></label>
+            <label><input type="radio" name="uiScale" value="1.2"><span>120%</span></label>
+            <label><input type="radio" name="uiScale" value="1.3"><span>130%</span></label>
           </div>
         </section>
 

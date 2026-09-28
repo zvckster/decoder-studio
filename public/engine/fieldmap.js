@@ -192,5 +192,134 @@ WDG_MODULE(function (W) {
     return [...names].sort();
   }
 
-  W.fieldmap = { STATIC_FIELDS, CONCEPTS, conceptOf, isStatic, suggestNames, catalogue, normalizeScheme };
+  // ------------------------------------------------------------------
+  // Field picker catalogue. WCS (Wazuh 5) follows ECS, so these are ECS
+  // names; each carries the kinds of value it holds, used to rank the
+  // suggestions against a field's inferred type.
+  // ------------------------------------------------------------------
+  const WCS_FIELDS = [
+    ['source.ip', 'ip', 'Source address'], ['destination.ip', 'ip', 'Destination address'], ['client.ip', 'ip', 'Client address'], ['server.ip', 'ip', 'Server address'],
+    ['host.ip', 'ip', 'Host address'], ['observer.ip', 'ip', 'Reporting device address'], ['source.nat.ip', 'ip', 'Source address after NAT'], ['destination.nat.ip', 'ip', 'Destination address after NAT'],
+    ['network.forwarded_ip', 'ip', 'X-Forwarded-For client'], ['related.ip', 'ip', 'Any IP seen in the event'],
+    ['source.port', 'port', 'Source port'], ['destination.port', 'port', 'Destination port'], ['client.port', 'port', 'Client port'], ['server.port', 'port', 'Server port'],
+    ['source.nat.port', 'port', 'Source port after NAT'], ['destination.nat.port', 'port', 'Destination port after NAT'],
+    ['source.mac', 'mac', 'Source MAC'], ['destination.mac', 'mac', 'Destination MAC'], ['host.mac', 'mac', 'Host MAC'], ['observer.mac', 'mac', 'Device MAC'],
+    ['user.name', 'user', 'User name'], ['user.id', 'user id', 'User ID'], ['user.domain', 'user host', 'User domain'], ['user.email', 'email user', 'User e-mail'], ['user.full_name', 'user text', 'Full name'],
+    ['source.user.name', 'user', 'User at the source'], ['destination.user.name', 'user', 'User at the destination'], ['user.target.name', 'user', 'Targeted user'], ['user.effective.name', 'user', 'Effective user'],
+    ['related.user', 'user', 'Any user seen in the event'], ['group.name', 'user text', 'Group name'],
+    ['host.name', 'host', 'Host name'], ['host.hostname', 'host', 'Host name (as reported)'], ['observer.hostname', 'host', 'Device host name'], ['observer.name', 'host text', 'Device name'],
+    ['source.domain', 'host', 'Source domain'], ['destination.domain', 'host', 'Destination domain'], ['client.domain', 'host', 'Client domain'], ['server.domain', 'host', 'Server domain'],
+    ['dns.question.name', 'host', 'DNS query name'], ['dns.question.type', 'text', 'DNS query type'], ['dns.response_code', 'text', 'DNS response code'],
+    ['url.original', 'url path', 'URL as seen in the log'], ['url.full', 'url', 'Full URL'], ['url.path', 'path url', 'URL path'], ['url.query', 'text', 'URL query string'], ['url.domain', 'host', 'URL domain'], ['url.scheme', 'text', 'URL scheme'],
+    ['http.request.method', 'text http', 'HTTP method'], ['http.response.status_code', 'number http', 'HTTP status code'], ['http.version', 'text http', 'HTTP version'],
+    ['http.request.referrer', 'url', 'HTTP referrer'], ['http.request.body.bytes', 'bytes', 'Request body size'], ['http.response.body.bytes', 'bytes', 'Response body size'],
+    ['user_agent.original', 'useragent text', 'User agent'],
+    ['file.path', 'path', 'File path'], ['file.name', 'file', 'File name'], ['file.extension', 'text', 'File extension'], ['file.directory', 'path', 'File directory'], ['file.size', 'bytes number', 'File size'],
+    ['file.hash.md5', 'hash', 'File MD5'], ['file.hash.sha1', 'hash', 'File SHA-1'], ['file.hash.sha256', 'hash', 'File SHA-256'],
+    ['process.name', 'file text', 'Process name'], ['process.pid', 'number id', 'Process ID'], ['process.executable', 'path', 'Process executable'], ['process.command_line', 'text', 'Command line'],
+    ['process.parent.name', 'file text', 'Parent process name'], ['process.parent.pid', 'number id', 'Parent process ID'], ['process.hash.sha256', 'hash', 'Process SHA-256'],
+    ['@timestamp', 'time', 'Event time'], ['event.created', 'time', 'Time the event was created'], ['event.start', 'time', 'Start time'], ['event.end', 'time', 'End time'], ['event.duration', 'number', 'Duration'],
+    ['event.action', 'text', 'Action'], ['event.outcome', 'text', 'Outcome (success, failure)'], ['event.category', 'text', 'Category'], ['event.type', 'text', 'Type'], ['event.kind', 'text', 'Kind'],
+    ['event.code', 'id number text', 'Event code / ID'], ['event.id', 'id', 'Unique event ID'], ['event.severity', 'number text', 'Severity'], ['event.reason', 'text', 'Reason'], ['event.provider', 'text', 'Provider'],
+    ['event.dataset', 'text', 'Dataset'], ['event.module', 'text', 'Module'], ['message', 'text', 'Message'], ['error.message', 'text', 'Error message'], ['log.level', 'text', 'Log level'],
+    ['network.protocol', 'text', 'Application protocol'], ['network.transport', 'text', 'Transport (tcp, udp)'], ['network.direction', 'text', 'Direction'], ['network.application', 'text', 'Application'],
+    ['network.bytes', 'bytes number', 'Total bytes'], ['network.packets', 'number', 'Total packets'], ['source.bytes', 'bytes number', 'Bytes from source'], ['destination.bytes', 'bytes number', 'Bytes from destination'],
+    ['source.packets', 'number', 'Packets from source'], ['destination.packets', 'number', 'Packets from destination'],
+    ['rule.name', 'text', 'Rule / policy name'], ['rule.id', 'id number text', 'Rule / policy ID'], ['rule.category', 'text', 'Rule category'],
+    ['observer.vendor', 'text', 'Device vendor'], ['observer.product', 'text', 'Device product'], ['observer.version', 'text', 'Device version'], ['observer.serial_number', 'text id', 'Device serial number'],
+    ['observer.ingress.interface.name', 'text', 'Inbound interface'], ['observer.egress.interface.name', 'text', 'Outbound interface'],
+    ['email.from.address', 'email', 'Sender'], ['email.to.address', 'email', 'Recipient'], ['email.subject', 'text', 'Subject'],
+    ['service.name', 'text', 'Service name'], ['tls.version', 'text', 'TLS version'], ['tls.cipher', 'text', 'TLS cipher'],
+    ['source.geo.country_iso_code', 'text', 'Source country'], ['destination.geo.country_iso_code', 'text', 'Destination country'],
+  ].map(([name, kinds, desc]) => ({ name, kinds: kinds.split(' '), desc }));
+
+  const NATIVE_FIELDS = [
+    ['srcip', 'ip', 'Source IP (static)'], ['dstip', 'ip', 'Destination IP (static)'], ['srcport', 'port', 'Source port (static)'], ['dstport', 'port', 'Destination port (static)'],
+    ['srcuser', 'user', 'Source user (static)'], ['dstuser', 'user', 'Destination user (static)'], ['protocol', 'text', 'Protocol (static)'], ['action', 'text', 'Action (static)'],
+    ['id', 'id number text', 'Event ID (static)'], ['url', 'url path', 'URL (static)'], ['status', 'text', 'Status (static)'], ['system_name', 'host', 'System name (static)'],
+    ['data', 'text', 'Data (static)'], ['extra_data', 'text', 'Extra data (static)'],
+  ]
+    .map(([name, kinds, desc]) => ({ name, kinds: kinds.split(' '), desc }))
+    .concat(
+      Object.values(CONCEPTS)
+        .map((c) => c[0])
+        .filter((n) => !STATIC_FIELDS.includes(n))
+        .map((n) => ({ name: n, kinds: kindsOfName(n), desc: 'common dynamic field' }))
+    );
+
+  function kindsOfName(n) {
+    if (/ip$/.test(n)) return ['ip'];
+    if (/port$/.test(n)) return ['port'];
+    if (/user|account/.test(n)) return ['user'];
+    if (/mac$/.test(n)) return ['mac'];
+    if (/host|domain|system/.test(n)) return ['host'];
+    if (/hash/.test(n)) return ['hash'];
+    if (/bytes|size/.test(n)) return ['bytes', 'number'];
+    if (/time|date/.test(n)) return ['time'];
+    if (/url|path/.test(n)) return ['url', 'path'];
+    if (/file/.test(n)) return ['file', 'path'];
+    return ['text'];
+  }
+
+  /** Kinds of value a field of the given inferred type can hold. */
+  const TYPE_KINDS = {
+    ipv4: ['ip'], ipv6: ['ip'], ip: ['ip'], ipport: ['ip', 'port'], mac: ['mac'],
+    integer: ['port', 'number', 'bytes', 'id'], number: ['number', 'bytes'], epoch: ['time'], hex: ['id'],
+    md5: ['hash'], sha1: ['hash'], sha256: ['hash'], hash: ['hash'], uuid: ['id'],
+    url: ['url'], unixpath: ['path', 'url'], winpath: ['path'], filename: ['file'], fqdn: ['host'], email: ['email', 'user'], domainuser: ['user'],
+    iso8601: ['time'], syslogtime: ['time'], httpdate: ['time'], date: ['time'], time: ['time'], timestamp: ['time'],
+    useragent: ['useragent'], httprequest: ['http', 'text'], bool: ['text'],
+    word: ['user', 'text', 'host', 'id', 'http'], token: ['text', 'user', 'id', 'host', 'path'], text: ['text'], empty: ['text'],
+  };
+
+  function catalogueFor(scheme) {
+    const s = normalizeScheme(scheme);
+    if (s === 'wazuh') return NATIVE_FIELDS;
+    if (s === 'wcs') return WCS_FIELDS;
+    return WCS_FIELDS.concat(NATIVE_FIELDS);
+  }
+
+  /**
+   * Picker suggestions for one field.
+   * @returns {{suggested: Array, others: Array, known: boolean}}
+   *   suggested: fields matching the value type (and the source key concept),
+   *   others: every other field (narrowed by the query), known: query is in the catalogue.
+   */
+  function pickerOptions(scheme, { type, key, query }) {
+    const cat = catalogueFor(scheme);
+    const q = String(query || '').trim().toLowerCase();
+    const kinds = TYPE_KINDS[type] || ['text'];
+    const concept = conceptOf(key);
+    const conceptNames = concept && CONCEPTS[concept] ? [CONCEPTS[concept][0], CONCEPTS[concept][1]] : [];
+    const score = (f) => {
+      let s = 0;
+      if (conceptNames.includes(f.name)) s += 100;
+      const k = f.kinds.findIndex((x) => kinds.includes(x));
+      if (k >= 0) s += 40 - k * 5 + (kinds.length - kinds.indexOf(f.kinds[k])) * 2;
+      return s;
+    };
+    const matchQ = (f) => {
+      if (!q) return 1;
+      const n = f.name.toLowerCase();
+      if (n === q) return 4;
+      if (n.startsWith(q)) return 3;
+      if (n.split(/[._]/).some((p) => p.startsWith(q))) return 2;
+      if (n.includes(q) || f.desc.toLowerCase().includes(q)) return 1;
+      return 0;
+    };
+    const ranked = cat
+      .map((f) => ({ f, s: score(f), m: matchQ(f) }))
+      .filter((x) => x.m > 0)
+      .sort((a, b) => b.m - a.m || b.s - a.s || a.f.name.localeCompare(b.f.name));
+    const suggested = ranked.filter((x) => x.s > 0).map((x) => x.f);
+    const others = ranked.filter((x) => x.s <= 0).map((x) => x.f);
+    const known = cat.some((f) => f.name === q);
+    return { suggested, others, known };
+  }
+
+  function isKnownName(scheme, name) {
+    return catalogueFor(scheme).some((f) => f.name === name);
+  }
+
+  W.fieldmap = { STATIC_FIELDS, CONCEPTS, WCS_FIELDS, conceptOf, isStatic, suggestNames, catalogue, normalizeScheme, pickerOptions, isKnownName };
 });

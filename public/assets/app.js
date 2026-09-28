@@ -121,6 +121,7 @@
       mode: radio('mode'),
       strategy: radio('strategy'),
       jsonMode: radio('jsonMode'),
+      uiScale: radio('uiScale') || '1.1',
       prematch: $('#prematchInput').value.trim(),
       ruleId: Number($('#ruleIdInput').value) || 100100,
       ruleLevel: Number($('#ruleLevelSelect').value),
@@ -134,7 +135,7 @@
     state.customMap = store.get('wds.customMap', {}) || {};
     const s = store.get('wds.settings', null);
     if (!s) return;
-    ['transport', 'mode', 'strategy', 'jsonMode'].forEach((k) => s[k] && setRadio(k, s[k]));
+    ['transport', 'mode', 'strategy', 'jsonMode', 'uiScale'].forEach((k) => s[k] && setRadio(k, s[k]));
     if (s.scheme) setRadio('scheme', W.fieldmap.normalizeScheme(s.scheme));
     if (s.prefix) $('#prefixInput').value = s.prefix;
     if (s.ruleId) $('#ruleIdInput').value = s.ruleId;
@@ -220,7 +221,7 @@
     state.custom = null;
     $('#decoderName').placeholder = suggestName() || 'e.g. trendmicro-apex';
     regenerate();
-    $('#analyzeBtn').classList.remove('pulse');
+    $('#nextBtn').classList.remove('pulse');
     if (!opts.quiet) {
       const ms = Math.round(performance.now() - t0);
       toast(`${state.analysis.formatLabel} · ${plural(state.analysis.stats.lines, 'line')} analysed in ${ms} ms`);
@@ -286,7 +287,7 @@
       li.classList.toggle('is-done', !!state.analysis && n !== state.step && (n < state.step || (n === 3 && verified)));
       btn.setAttribute('aria-current', n === state.step ? 'step' : 'false');
     });
-    $('#backBtn').disabled = state.step === 1;
+    $('#backBtn').hidden = state.step === 1;
     const nb = $('#nextBtn');
     nb.textContent = state.step === 1 ? 'Analyze and continue' : state.step === STEPS ? (state.model && !state.model.decoders.length ? 'Download rules' : 'Download decoder') : 'Next';
 
@@ -318,7 +319,12 @@
   function renderHealth() {
     const a = state.analysis;
     const v = state.verdict;
-    if (!a) return;
+    if (!a) {
+      for (const id of ['hFormat', 'hLines', 'hFields', 'hHealth']) $(`#${id}`).textContent = '-';
+      for (const id of ['hFormatSub', 'hLinesSub', 'hFieldsSub', 'hHealthSub']) $(`#${id}`).innerHTML = '&nbsp;';
+      $('#hHealthTile').classList.remove('is-ok', 'is-warn', 'is-err');
+      return;
+    }
     $('#hFormat').textContent = a.formatLabel;
     $('#hFormatSub').textContent = a.settings.format === 'auto' ? `auto-detected · ${pct(a.share)} of lines` : 'set manually';
     $('#hLines').textContent = `${a.stats.parsed} / ${a.stats.lines - a.stats.headers}`;
@@ -461,8 +467,8 @@
         <td><span class="src-key">${esc(f.group === 'template' ? f.templateName || f.key : f.key)}</span>${srcLabel ? `<span class="src-label">${esc(srcLabel)}</span>` : ''}</td>
         <td class="col-arrow">→</td>
         <td><div class="name-cell">
-          <input class="input mono ${valid ? '' : 'is-invalid'}" value="${esc(jsonPlugin ? f.key : f.name)}" list="fieldCatalogue" aria-label="Field name for ${esc(f.key)}" spellcheck="false" ${jsonPlugin ? 'disabled title="The JSON plugin keeps the JSON key names. Switch JSON extraction to Regex in the settings to rename."' : ''}>
-          <span class="tag-slot">${isStatic && !jsonPlugin ? '<span class="tag tag-static" title="Wazuh static field">static</span>' : ''}${dup ? '<span class="tag tag-dup" title="Several fields use this name">dup</span>' : ''}</span>
+          <input class="input mono ${valid ? '' : 'is-invalid'}" value="${esc(jsonPlugin ? f.key : f.name)}" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-label="Field name for ${esc(f.key)}" spellcheck="false" ${jsonPlugin ? 'disabled title="The JSON plugin keeps the JSON key names. Switch JSON extraction to Regex in the settings to rename."' : ''}>
+          <span class="tag-slot">${isStatic && !jsonPlugin ? '<span class="tag tag-static" title="Wazuh static field">static</span>' : ''}${scheme === 'wcs' && !jsonPlugin && !String(f.name).startsWith('custom.') && !W.fieldmap.isKnownName('wcs', f.name) ? '<span class="tag tag-custom" title="Not a WCS field: kept as a custom field">custom</span>' : ''}${dup ? '<span class="tag tag-dup" title="Several fields use this name">dup</span>' : ''}</span>
         </div></td>
         <td><span class="type-chip">${esc(W.types.info(f.type).label)}</span></td>
         <td><div class="presence"><span class="bar"><span style="width:${Math.round(f.presence * 100)}%"></span></span><span class="pct">${pct(f.presence)}</span></div></td>
@@ -506,6 +512,106 @@
   function onFieldsInput(e) {
     if (!e.target.classList.contains('input')) return;
     e.target.classList.toggle('is-invalid', !nameOk(e.target.value.trim().replace(/\s+/g, '_')));
+  }
+
+  // ------------------------------------------------------- field picker ---
+  // Dropdown on every field-name input: fields matching the value's type
+  // first, narrowed as the analyst types; any custom name stays allowed.
+  let comboEl = null;
+  let combo = null; // { input, field, typed, active, items }
+  const SCHEME_LABEL = { wazuh: 'Native Wazuh', wcs: 'WCS', custom: 'the catalogue' };
+
+  function openCombo(input) {
+    const tr = input.closest('tr[data-key]');
+    const f = tr && state.analysis && state.analysis.fields.find((x) => x.key === tr.dataset.key);
+    if (!f || input.disabled) return;
+    if (!comboEl) {
+      comboEl = document.createElement('div');
+      comboEl.className = 'combo-list';
+      comboEl.setAttribute('role', 'listbox');
+      comboEl.hidden = true;
+      document.body.appendChild(comboEl);
+      // mousedown + preventDefault: pick before the input loses focus
+      comboEl.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const it = e.target.closest('.combo-item');
+        if (it) pickCombo(it.dataset.name);
+      });
+    }
+    combo = { input, field: f, typed: false, active: -1, items: [] };
+    input.setAttribute('aria-expanded', 'true');
+    renderCombo();
+  }
+
+  function closeCombo() {
+    if (combo) combo.input.setAttribute('aria-expanded', 'false');
+    combo = null;
+    if (comboEl) comboEl.hidden = true;
+  }
+
+  function markQuery(name, q) {
+    if (!q) return esc(name);
+    const i = name.toLowerCase().indexOf(q.toLowerCase());
+    if (i < 0) return esc(name);
+    return `${esc(name.slice(0, i))}<mark>${esc(name.slice(i, i + q.length))}</mark>${esc(name.slice(i + q.length))}`;
+  }
+
+  function renderCombo() {
+    if (!combo || !comboEl) return;
+    const { input, field } = combo;
+    const scheme = settings().scheme;
+    const q = combo.typed ? input.value.trim() : '';
+    const opts = W.fieldmap.pickerOptions(scheme, { type: field.type, key: field.key, query: q });
+    const sugg = opts.suggested.slice(0, 40);
+    const others = opts.others.slice(0, q ? 60 : 40);
+    combo.items = [...sugg, ...others].map((x) => x.name);
+    if (combo.active >= combo.items.length) combo.active = combo.items.length - 1;
+    let i = 0;
+    const row = (x) => `<div class="combo-item${i === combo.active ? ' is-active' : ''}" role="option" data-idx="${i++}" data-name="${esc(x.name)}"><span class="mono">${markQuery(x.name, q)}</span><span class="combo-desc">${esc(x.desc)}</span></div>`;
+    let html = '';
+    if (sugg.length) html += `<div class="combo-group">Suggested for ${esc(W.types.info(field.type).label)}</div>${sugg.map(row).join('')}`;
+    if (others.length) html += `<div class="combo-group">${q ? 'Other matches' : 'All fields'}</div>${others.map(row).join('')}`;
+    const custom = q && !opts.known && !(scheme === 'wcs' && q.startsWith('custom.'));
+    const foot = custom
+      ? `<div class="combo-foot is-custom">"${esc(q)}" is a custom field, not part of ${SCHEME_LABEL[scheme] || 'the catalogue'}. Press Enter to keep it.</div>`
+      : `<div class="combo-foot">Type to filter, or enter any custom name.</div>`;
+    comboEl.innerHTML = html + foot;
+    comboEl.hidden = false;
+    const r = input.getBoundingClientRect();
+    const width = Math.max(r.width, Math.min(380, window.innerWidth - 24));
+    comboEl.style.width = `${width}px`;
+    comboEl.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - width - 12))}px`;
+    const h = comboEl.offsetHeight;
+    comboEl.style.top = `${r.bottom + 4 + h > window.innerHeight - 8 && r.top - h - 4 > 8 ? r.top - h - 4 : r.bottom + 4}px`;
+    const act = $('.combo-item.is-active', comboEl);
+    if (act) act.scrollIntoView({ block: 'nearest' });
+  }
+
+  function pickCombo(name) {
+    if (!combo) return;
+    const input = combo.input;
+    input.value = name;
+    closeCombo();
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function onComboKey(e) {
+    if (!combo || e.target !== combo.input) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const n = combo.items.length;
+      if (!n) return;
+      combo.active = e.key === 'ArrowDown' ? (combo.active + 1) % n : (combo.active - 1 + n) % n;
+      renderCombo();
+    } else if (e.key === 'Enter') {
+      if (combo.active >= 0 && combo.items[combo.active]) {
+        e.preventDefault();
+        e.stopPropagation();
+        pickCombo(combo.items[combo.active]);
+      } else closeCombo();
+    } else if (e.key === 'Escape') {
+      closeCombo();
+    }
   }
 
   function syncTemplateSelection(f) {
@@ -1172,6 +1278,30 @@
     reader.readAsText(file.size > 10 * 1024 * 1024 ? file.slice(0, 10 * 1024 * 1024) : file);
   }
 
+  function resetSession() {
+    closeCombo();
+    Object.assign(state, { analysis: null, model: null, rules: null, verdict: null, custom: null, line: 0, sampleName: '' });
+    $('#logs').value = '';
+    $('#decoderName').value = '';
+    $('#decoderName').placeholder = 'e.g. trendmicro-apex';
+    $('#decoderName').classList.remove('is-invalid');
+    $('#prematchInput').value = '';
+    $('#formatSelect').value = 'auto';
+    $('#customXml').value = '';
+    $('#fieldFilter').value = '';
+    setRadio('testSource', 'generated');
+    setRadio('deployView', 'decoder');
+    $('#deployDecoder').hidden = false;
+    $('#deployRules').hidden = true;
+    $('#nextBtn').classList.remove('pulse');
+    if (location.search) history.replaceState(null, '', location.pathname);
+    updateLineCount();
+    render();
+    goStep(1);
+    $('#logs').focus();
+    toast('Fresh session');
+  }
+
   // --------------------------------------------------------------- init ---
   function init() {
     restoreSettings();
@@ -1194,7 +1324,7 @@
     const logs = $('#logs');
     logs.addEventListener('input', () => {
       updateLineCount();
-      if (state.analysis) $('#analyzeBtn').classList.add('pulse');
+      if (state.analysis) $('#nextBtn').classList.add('pulse');
     });
     logs.addEventListener('paste', (e) => {
       const text = e.clipboardData && e.clipboardData.getData('text');
@@ -1216,9 +1346,6 @@
         logs.value = c;
         updateLineCount();
       }
-    });
-    $('#analyzeBtn').addEventListener('click', () => {
-      if (analyze()) goStep(2);
     });
     $('#clearBtn').addEventListener('click', () => {
       logs.value = '';
@@ -1316,7 +1443,26 @@
     // fields
     const fb = $('#fieldsBody');
     fb.addEventListener('change', onFieldsChange);
-    fb.addEventListener('input', onFieldsInput);
+    fb.addEventListener('input', (e) => {
+      onFieldsInput(e);
+      if (combo && e.target === combo.input) {
+        combo.typed = true;
+        combo.active = -1;
+        renderCombo();
+      }
+    });
+    fb.addEventListener('focusin', (e) => {
+      if (e.target.matches('.name-cell input.input')) openCombo(e.target);
+    });
+    fb.addEventListener('click', (e) => {
+      if (e.target.matches('.name-cell input.input') && (!combo || combo.input !== e.target)) openCombo(e.target);
+    });
+    fb.addEventListener('focusout', (e) => {
+      if (combo && e.target === combo.input) closeCombo();
+    });
+    fb.addEventListener('keydown', onComboKey, true);
+    window.addEventListener('scroll', () => combo && renderCombo(), true);
+    window.addEventListener('resize', () => combo && renderCombo());
     fb.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && e.target.classList.contains('input')) e.target.blur();
     });
@@ -1440,6 +1586,28 @@
       }
     });
     $('#helpBtn').addEventListener('click', () => $('#helpDialog').showModal());
+
+    // display size
+    $$('input[name="uiScale"]').forEach((el) =>
+      el.addEventListener('change', () => {
+        document.documentElement.style.setProperty('--ui-scale', radio('uiScale'));
+        saveSettings();
+      })
+    );
+
+    // home: start a fresh session (settings and custom mapping are kept)
+    const confirmDlg = $('#confirmDialog');
+    $('#homeBtn').addEventListener('click', () => {
+      if (!state.analysis && !$('#logs').value.trim()) {
+        resetSession();
+        return;
+      }
+      confirmDlg.returnValue = '';
+      confirmDlg.showModal();
+    });
+    confirmDlg.addEventListener('close', () => {
+      if (confirmDlg.returnValue === 'ok') resetSession();
+    });
 
     updateLineCount();
     render();
