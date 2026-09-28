@@ -121,7 +121,7 @@
       mode: radio('mode'),
       strategy: radio('strategy'),
       jsonMode: radio('jsonMode'),
-      uiScale: radio('uiScale') || '1.1',
+      uiScale: radio('uiScale') || '1',
       prematch: $('#prematchInput').value.trim(),
       ruleId: Number($('#ruleIdInput').value) || 100100,
       ruleLevel: Number($('#ruleLevelSelect').value),

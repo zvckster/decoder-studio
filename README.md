@@ -144,7 +144,7 @@ Settings live behind the gear icon, are saved in the browser and apply instantly
 
 The parent prematch is built from the earliest stable fields of the line (for example `^date=... time=... devname=` for FortiGate), so logs from other sources are rejected on their first characters.
 
-Display size (100%, 110%, 120% or 130%, default 110%) scales the whole interface.
+Display size (100%, 110%, 120% or 130%, default 100%) scales the whole interface.
 
 Keyboard: `Ctrl+Enter` analyzes, `Alt+1` to `Alt+4` go to a step, arrows and Enter pick a field in the picker.
 
