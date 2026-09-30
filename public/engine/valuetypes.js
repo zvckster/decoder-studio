@@ -34,6 +34,7 @@ WDG_MODULE(function (W) {
     { id: 'syslogtime', label: 'Syslog time', test: (v) => /^[A-Z][a-z]{2} {1,2}\d{1,2}(?: \d{4})? \d{2}:\d{2}:\d{2}/.test(v), pattern: '[A-Z][a-z]{2} {1,2}\\d{1,2}(?: \\d{4})? \\d{2}:\\d{2}:\\d{2}', parent: 'timestamp' },
     { id: 'date', label: 'Date', test: (v) => /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$|^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}$/.test(v), pattern: '\\d{1,4}[-/]\\d{1,2}[-/]\\d{1,4}', parent: 'token' },
     { id: 'time', label: 'Time', test: (v) => /^\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?$/.test(v), pattern: '\\d{1,2}:\\d{2}(?::\\d{2}(?:[.,]\\d+)?)?', parent: 'token' },
+    { id: 'ctime', label: 'Timestamp (ctime)', test: (v) => /^[A-Z][a-z]{2} [A-Z][a-z]{2} {1,2}\d{1,2} \d{2}:\d{2}:\d{2}(?:\.\d+)? \d{4}$/.test(v), pattern: null, parent: 'timestamp' },
     { id: 'httpdate', label: 'HTTP date', test: (v) => /^\d{2}\/[A-Z][a-z]{2}\/\d{4}:\d{2}:\d{2}:\d{2}(?: [+-]\d{4})?$/.test(v), pattern: null, parent: 'timestamp' },
     { id: 'timestamp', label: 'Timestamp', test: () => false, pattern: null, parent: 'text' },
     { id: 'email', label: 'E-mail', test: (v) => /^[^\s@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(v), pattern: '[^\\s@]+@[A-Za-z0-9.-]+', parent: 'token' },

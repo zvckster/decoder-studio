@@ -25,6 +25,14 @@ WDG_MODULE(function (W) {
   const DIRECTION = { from: 'src', to: 'dst', by: 'src', src: 'src', dst: 'dst', source: 'src', destination: 'dst', client: 'src', server: 'dst', remote: 'src', local: 'dst' };
   const KEYWORDS = new Set(['user', 'username', 'account', 'login', 'host', 'hostname', 'file', 'filename', 'path', 'uid', 'gid', 'pid', 'port', 'ip', 'domain', 'group', 'role', 'policy', 'rule', 'client', 'server', 'src', 'dst']);
   const REQUEST_LINE = /^"([A-Z]{3,10}) (\S+) ([A-Z]+\/[\d.]+)"$/;
+  // "[client 10.0.0.1]", "[pid 1234]": a fixed key and a value
+  const BRACKET_KV = /^\[([A-Za-z_][\w-]*) (\S+)\]$/;
+  // "[error]", "[warn]", "[core:error]", "[:error]": a log level
+  const LEVEL = /^\[(?:[\w-]*:)?(?:emerg|emergency|alert|crit|critical|err|error|warn|warning|notice|info|informational|debug|trace\d*|fatal)\]$/i;
+  // Words that are part of messages, never values
+  const COMMON_WORDS = new Set(['does', 'do', 'did', 'not', 'no', 'is', 'are', 'was', 'were', 'be', 'been', 'has', 'have', 'had', 'will', 'can', 'could', 'found', 'exist', 'exists', 'failed', 'denied', 'allowed', 'accepted', 'closed', 'opened', 'started', 'stopped', 'invalid', 'unknown', 'error', 'from', 'to', 'by', 'with', 'for', 'on', 'of', 'in', 'at', 'the', 'a', 'an', 'and', 'or', 'yes', 'successfully', 'success', 'failure']);
+  // Types whose own name describes the value better than a neighbouring word
+  const STRONG_TYPES = new Set(['ipv4', 'ipv6', 'ip', 'ipport', 'mac', 'unixpath', 'winpath', 'url', 'email', 'uuid', 'md5', 'sha1', 'sha256', 'hash', 'iso8601', 'syslogtime', 'httpdate', 'ctime', 'epoch', 'date', 'time', 'filename']);
   const STOP_WORDS = new Set(['the', 'a', 'an', 'of', 'on', 'in', 'at', 'is', 'was', 'for', 'with', 'and', 'or', 'as']);
 
   function tokenize(body) {
@@ -122,6 +130,19 @@ WDG_MODULE(function (W) {
     ];
   }
 
+  /** A bracket value: "10.0.0.1:5678" becomes an address, ":" and a port. */
+  function splitValue(p) {
+    if (!p.values.every((v) => /^\d{1,3}(?:\.\d{1,3}){3}:\d{1,5}$/.test(v))) return [p];
+    const parts = p.values.map((v) => v.split(':'));
+    const col = (i) => parts.map((x) => x[i]);
+    const same = (vals) => vals.every((x) => x === vals[0]);
+    return [
+      { k: 'w', v: col(0)[0], values: col(0), ws: p.ws, isConst: same(col(0)), kvValue: true },
+      { k: 'p', v: ':', values: p.values.map(() => ':'), ws: false, isConst: true },
+      { k: 'w', v: col(1)[0], values: col(1), ws: false, isConst: same(col(1)), kvValue: true, portOf: true },
+    ];
+  }
+
   /** Split varying words like "outside:10.0.0.1/443" into sub-positions. */
   function splitWords(positions) {
     const out = [];
@@ -129,6 +150,19 @@ WDG_MODULE(function (W) {
       if (p.k === 'q' && p.values.every((v) => REQUEST_LINE.test(v))) {
         out.push(...splitRequest(p));
         continue;
+      }
+      if (p.k === 'b' && p.values.every((v) => BRACKET_KV.test(v))) {
+        const kv = p.values.map((v) => BRACKET_KV.exec(v));
+        const keys = kv.map((m) => m[1]);
+        if (keys.every((k) => k === keys[0])) {
+          const same = (vals) => vals.every((x) => x === vals[0]);
+          const vals = kv.map((m) => m[2]);
+          const brace = (ch, ws) => ({ k: 'p', v: ch, values: p.values.map(() => ch), ws, isConst: true });
+          out.push(brace('[', p.ws), { k: 'w', v: keys[0], values: keys, ws: false, isConst: true });
+          out.push(...splitValue({ k: 'w', v: vals[0], values: vals, ws: true, isConst: same(vals), kvValue: true }));
+          out.push(brace(']', false));
+          continue;
+        }
       }
       if (p.isConst || p.k !== 'w' || NO_SPLIT.has(T.inferType(p.values))) {
         out.push(p);
@@ -157,6 +191,11 @@ WDG_MODULE(function (W) {
       p.type = t;
       if (p.isConst && small && (VARIABLE_TYPES.has(t) || (p.k === 'q' && /\d/.test(p.v)) || (p.k === 'b' && /\d/.test(p.v)))) p.isConst = false;
       if (p.sub) p.isConst = false; // request-line parts are always fields
+      if (p.kvValue) p.isConst = false; // "[client X]": X is a field
+      if (p.k === 'b' && p.values.every((v) => LEVEL.test(v))) {
+        p.isConst = false;
+        p.level = true;
+      }
       p.role = p.isConst ? 'const' : 'var';
       p.selected = p.role === 'var';
     }
@@ -164,7 +203,7 @@ WDG_MODULE(function (W) {
       positions.forEach((p, i) => {
         const prev = immediatePrev(positions, i);
         const self = p.v.toLowerCase();
-        if (p.role === 'const' && p.k === 'w' && prev && KEYWORDS.has(prev.replace(/[:=]$/, '')) && !KEYWORDS.has(self) && !STOP_WORDS.has(self)) {
+        if (p.role === 'const' && p.k === 'w' && prev && KEYWORDS.has(prev.replace(/[:=]$/, '')) && !KEYWORDS.has(self) && !STOP_WORDS.has(self) && !COMMON_WORDS.has(self)) {
           p.isConst = false;
           p.role = 'var';
           p.selected = true;
@@ -211,8 +250,11 @@ WDG_MODULE(function (W) {
       else if (w === 'port' && p.type === 'integer') name = `${dir || 'dst'}port`;
       else if (w && ['user', 'username', 'account', 'login'].includes(w)) name = dir === 'src' ? 'srcuser' : 'dstuser';
       else if (after === 'for' && !isIp && ['word', 'token', 'email', 'domainuser'].includes(p.type)) name = 'dstuser';
-      else if (w && !d) name = W.util.sanitizeFieldName(w);
-      if (p.sub) {
+      else if (p.portOf) name = `${dir || 'src'}port`;
+      else if (w && !d && !COMMON_WORDS.has(w) && (KEYWORDS.has(w) || !STRONG_TYPES.has(p.type))) name = W.util.sanitizeFieldName(w);
+      if (p.level) {
+        name = 'level';
+      } else if (p.sub) {
         name = { method: 'http_method', path: 'url', version: 'http_version' }[p.sub];
         sawRequest = true;
       } else if (!name && p.type === 'httprequest') {
@@ -232,7 +274,7 @@ WDG_MODULE(function (W) {
         if (next && next.k === 'b' && next.type === 'httpdate' && ['word', 'token', 'empty', 'email', 'domainuser'].includes(p.type)) name = 'srcuser';
       }
       if (!name) {
-        const byType = { ipv4: 'ip', ipv6: 'ip', ip: 'ip', ipport: 'endpoint', integer: 'number', number: 'number', iso8601: 'timestamp', syslogtime: 'timestamp', time: 'time', date: 'date', mac: 'mac', email: 'email', url: 'url', unixpath: 'path', winpath: 'path', uuid: 'uuid', md5: 'hash', sha1: 'hash', sha256: 'hash', hash: 'hash', fqdn: 'hostname', httpdate: 'timestamp', useragent: 'user_agent', filename: 'file_name', domainuser: 'user' };
+        const byType = { ipv4: 'ip', ipv6: 'ip', ip: 'ip', ipport: 'endpoint', integer: 'number', number: 'number', iso8601: 'timestamp', syslogtime: 'timestamp', time: 'time', date: 'date', mac: 'mac', email: 'email', url: 'url', unixpath: 'path', winpath: 'path', uuid: 'uuid', md5: 'hash', sha1: 'hash', sha256: 'hash', hash: 'hash', fqdn: 'hostname', httpdate: 'timestamp', ctime: 'timestamp', useragent: 'user_agent', filename: 'file_name', domainuser: 'user' };
         name = byType[p.type] || (isIp ? 'ip' : 'value');
         if (name === 'ip') name = dir ? `${dir}ip` : used.has('srcip') ? 'dstip' : 'srcip';
       }
@@ -456,7 +498,7 @@ WDG_MODULE(function (W) {
     else if (word && KEYWORDS.has(word)) name = word === 'port' ? 'dstport' : word;
     else if (REQUEST_LINE.test(`"${value}"`)) name = 'request';
     else {
-      const byType = { ipv4: 'srcip', ipv6: 'srcip', ipport: 'endpoint', integer: 'number', number: 'number', iso8601: 'timestamp', syslogtime: 'timestamp', httpdate: 'timestamp', time: 'time', date: 'date', mac: 'mac', email: 'email', url: 'url', unixpath: 'path', winpath: 'path', uuid: 'uuid', md5: 'hash', sha1: 'hash', sha256: 'hash', fqdn: 'hostname', useragent: 'user_agent', filename: 'file_name', httprequest: 'request' };
+      const byType = { ipv4: 'srcip', ipv6: 'srcip', ipport: 'endpoint', integer: 'number', number: 'number', iso8601: 'timestamp', syslogtime: 'timestamp', httpdate: 'timestamp', ctime: 'timestamp', time: 'time', date: 'date', mac: 'mac', email: 'email', url: 'url', unixpath: 'path', winpath: 'path', uuid: 'uuid', md5: 'hash', sha1: 'hash', sha256: 'hash', fqdn: 'hostname', useragent: 'user_agent', filename: 'file_name', httprequest: 'request' };
       name = byType[type] || (word && !STOP_WORDS.has(word) ? word : 'field');
     }
     let cand = name;

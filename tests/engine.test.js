@@ -423,3 +423,21 @@ test('pattern builder: a free selection across tokens becomes one field', () => 
   assert.equal(v.results[1].fields.find((f) => f.name === 'request_line').value, 'POST /api/login?next=/home HTTP/2.0');
   assert.equal(v.coverage.fieldRate, 1);
 });
+
+test('free-form: Apache error log gets level, [key value] fields and no date prematch', () => {
+  const one = W.analyze('[Mon Sep 28 13:30:01.123456 2026] [error] [client 192.168.1.25] File does not exist: /var/www/html/favicon.ico');
+  let m = W.generate(one, { name: 'apache-errors' });
+  let v = W.linter.verify(m, one);
+  const f = Object.fromEntries(v.results[0].fields.map((x) => [x.name, x.value]));
+  assert.deepEqual(f, { timestamp: 'Mon Sep 28 13:30:01.123456 2026', level: 'error', srcip: '192.168.1.25', path: '/var/www/html/favicon.ico' });
+  assert.ok(!/Mon|Sep/.test(m.xml.match(/<prematch[^>]*>(.*)<\/prematch>/)[1]), 'no day or month name in the prematch');
+
+  const many = W.analyze([
+    '[Mon Sep 28 13:30:01.123456 2026] [core:error] [pid 1234] [client 192.168.1.25:51234] AH00128: File does not exist: /var/www/html/favicon.ico',
+    '[Tue Sep 29 08:02:11.000100 2026] [core:warn] [pid 88] [client 10.0.0.7:40022] AH00128: File does not exist: /var/www/html/robots.txt',
+  ].join('\n'));
+  v = W.linter.verify(W.generate(many, { name: 'apache-errors' }), many);
+  assert.equal(v.coverage.decoded, 2);
+  assert.deepEqual(v.results[1].fields.map((x) => x.name), ['timestamp', 'level', 'pid', 'srcip', 'srcport', 'path']);
+  assert.equal(v.results[1].fields.find((x) => x.name === 'srcport').value, '40022');
+});

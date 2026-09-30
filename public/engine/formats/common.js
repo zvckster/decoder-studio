@@ -62,6 +62,9 @@ WDG_MODULE(function (W) {
       const m = /^(.*[\s|,;:=\[\](){}"'\/])/.exec(cut);
       p = m ? m[1] : cut.length >= 4 ? cut : '';
     }
+    // Day and month names ("Mon Sep ...") come from dates: they change.
+    const dayMonth = p.search(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b/);
+    if (dayMonth >= 0) p = p.slice(0, dayMonth);
     return p.slice(0, maxLen);
   }
 
