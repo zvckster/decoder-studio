@@ -1,3 +1,5 @@
+<img src="public/assets/icon.png" alt="Decoder Studio logo" width="96">
+
 # Decoder Studio
 
 **Build Wazuh decoders that actually work, from a handful of sample logs.**
@@ -182,7 +184,7 @@ public/                   the website (everything that gets published)
   index.html              user interface
   assets/app.css          design tokens, light and dark themes, components
   assets/app.js           UI controller (state, rendering, template editor, tester)
-  assets/wazuh.png        logo and favicon
+  assets/icon.png         logo (also favicon-32, apple-touch-icon, og-image)
   engine/
     core.js               utilities, PCRE2-safe escaping, module loader
     predecoder.js         port of OS_CleanMSG
