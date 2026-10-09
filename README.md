@@ -1,4 +1,4 @@
-<img src="public/assets/icon.png" alt="Decoder Studio logo" width="96">
+<img src="public/assets/icon.png" alt="Decoder Studio logo" width="25">
 
 # Decoder Studio
 
