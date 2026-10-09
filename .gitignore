@@ -1,11 +1,8 @@
 node_modules/
 .DS_Store
 Thumbs.db
-# previous version, kept locally only
 legacy/
 .wrangler/
-
-# local tooling and secrets, never published
 .claude/
 .env
 .env.*
