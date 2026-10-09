@@ -1,4 +1,4 @@
-# Decoder Studio <img src="public/assets/icon.png" alt="Decoder Studio logo" width="32">
+# <img src="public/assets/icon.png" alt="Decoder Studio logo" width="28"> ecoder Studio 
 
 **Build Wazuh decoders that actually work, from a handful of sample logs.**
 
